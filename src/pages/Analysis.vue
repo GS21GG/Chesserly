@@ -134,6 +134,8 @@
     }
   })
 
+
+
   function loadStoredMultiPV() {
     const stored = Number(localStorage.getItem('chesslab_multiPV'))
     if (stored >= 1 && stored <= 3) return stored
@@ -229,7 +231,24 @@
     return null
   }
 
+  let savedExplorerScrollTop = 0
+
   async function importLichessExplorer() {
+    const isExplorer = activeTab.value === 'explorer' && movesScrollRef.value
+    if (isExplorer) {
+      savedExplorerScrollTop = movesScrollRef.value.scrollTop
+    }
+
+    const restoreScroll = () => {
+      if (isExplorer && movesScrollRef.value) {
+        nextTick(() => {
+          if (movesScrollRef.value) {
+            movesScrollRef.value.scrollTop = savedExplorerScrollTop
+          }
+        })
+      }
+    }
+
     if (isExplorerOutOfBook(currentNode.value, explorerDb.value)) {
       const last = getLastOpening(currentNode.value)
       if (last) {
@@ -243,10 +262,14 @@
       explorerMoves.value = []
       explorerError.value = ""
       explorerLoading.value = false
+      
+      restoreScroll()
       return
     }
+
     explorerLoading.value = true
     explorerError.value = ""
+
     const uciList = movesListUCI.value
     if (uciList.length > 40) {
       markNodeOutOfBook(explorerDb.value)
@@ -259,15 +282,20 @@
         openingEco.value = ""
       }
       explorerLoading.value = false
+      
+      restoreScroll()
       return
     }
+
     const bookList = uciList.join(",")
     const dbParam = explorerDb.value
     const url = bookList
       ? `../../api/explorer?db=${dbParam}&play=${encodeURIComponent(bookList)}`
       : `../../api/explorer?db=${dbParam}`
+
     try {
       const response = await fetch(url)
+
       if (response.status === 204) {
         markNodeOutOfBook(explorerDb.value)
         const last = getLastOpening(currentNode.value)
@@ -283,13 +311,16 @@
         explorerError.value = ""
         return
       }
+
       if (!response.ok) {
         explorerError.value = `Explorer error (${response.status})`
         explorerStats.value = null
         explorerMoves.value = []
         return
       }
+
       const data = await response.json()
+
       if (data.opening) {
         opening.value = data.opening.name
         openingEco.value = data.opening.eco
@@ -307,16 +338,19 @@
           openingEco.value = ""
         }
       }
+
       const total = (data.white ?? 0) + (data.draws ?? 0) + (data.black ?? 0)
       if (total === 0 && uciList.length > 0) {
         markNodeOutOfBook(explorerDb.value)
       }
+
       explorerStats.value = total > 0 ? {
         white: Math.round((data.white / total) * 100),
         draws: Math.round((data.draws / total) * 100),
         black: Math.round((data.black / total) * 100),
         total
       } : null
+
       explorerMoves.value = (data.moves ?? [])
         .map(m => {
           const moveTotal = (m.white ?? 0) + (m.draws ?? 0) + (m.black ?? 0)
@@ -329,6 +363,7 @@
           }
         })
         .sort((a, b) => b.total - a.total)
+
       explorerError.value = ""
     } catch (error) {
       console.warn("Explorer fetch failed:", error)
@@ -337,6 +372,9 @@
       explorerMoves.value = []
     } finally {
       explorerLoading.value = false
+      
+      // Restore scroll after loading finishes (covers success, errors, and 204s)
+      restoreScroll()
     }
   }
 
