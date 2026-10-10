@@ -77,7 +77,7 @@ export async function loadOpeningBook(url = '/book/openings.json') {
         if (Array.isArray(data)) {
             for (const line of data) {
                 if (!Array.isArray(line)) continue
-                
+
                 let prefix = ""
                 for (let i = 0; i < line.length; i++) {
                     const mv = line[i]
@@ -110,10 +110,10 @@ export async function startEngine() {
         const onMessage = (e) => {
             const msg = e.data
             if (msg === "uciok") {
-                sf.postMessage("setoption name MultiPV value 1") // 🚀 Changed default to 1
+                sf.postMessage("setoption name MultiPV value 1")
                 currentMultiPV = 1
                 sf.postMessage("setoption name Hash value 64")
-                sf.postMessage("ucinewgame") // 🚀 PRE-WARM: Clears old state
+                sf.postMessage("ucinewgame")
                 sf.postMessage("isready")
             }
             if (msg === "readyok") {
@@ -127,7 +127,7 @@ export async function startEngine() {
     await bookPromise
 
     sf.postMessage("position startpos")
-    sf.postMessage("go depth 1") 
+    sf.postMessage("go depth 1")
 }
 
 export function cancelAnalysis() {
@@ -311,6 +311,7 @@ function isHangingCapture(beforeFen, move) {
     return defenders.length === 0
 }
 
+// ---- Engine Search ------------------------------------------------------
 function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = null) {
     const myId = analysisId
     const effectiveRoot = (rootFen && rootFen !== STARTPOS_FEN) ? rootFen : null
@@ -405,6 +406,24 @@ function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = n
     })
 }
 
+// ---- Classification (expected points) -----------------------------------
+// Score is always from White's point of view. These helpers turn it into
+// the mover's point of view.
+const WIN_CURVE_K = 0.00368208 // Lichess win-chance curve (chess.com's is not public)
+
+// Points lost (0 to 1) limits. Change these to tune.
+const LIMIT_BEST = 0.005
+const LIMIT_EXCELLENT = 0.02
+const LIMIT_GOOD = 0.05
+const LIMIT_INACCURACY = 0.10
+const LIMIT_MISTAKE = 0.20
+
+// Great / Brilliant limits
+const GREAT_MIN_GAP = 0.10        // best move must beat 2nd best by this much win chance
+const BRILLIANT_MAX_BEFORE = 0.85 // not already winning big
+const BRILLIANT_MIN_AFTER = 0.40  // position must not get bad
+const BRILLIANT_MAX_DROP = 0.10   // must not lose much win chance
+
 function scoreToCpComparable(score) {
     if (!score) return 0
     if (score.type === 'cp') return score.value
@@ -415,145 +434,133 @@ function scoreToCpComparable(score) {
     return 0
 }
 
-function checkBrilliant({ move, best_move, top_moves, isBook, eval_before, eval_after, side_to_move, movesList, is_sacrifice }) {
-    const moverIsWhite = side_to_move === 'w'
-    if (best_move !== move) return false
-    if (isBook) return false
-    if (!top_moves || top_moves.length < 1) return false
-    if (!top_moves[0]?.score) return false
-    if (eval_before?.type !== 'cp') return false
-    if (Math.abs(eval_before.value) >= 500) return false
-    if (!is_sacrifice) return false
-    if (eval_after?.type === 'mate') {
-        const moverHasMate = moverIsWhite ? eval_after.value > 0 : eval_after.value < 0
-        if (!moverHasMate) return false
-    } else if (eval_after?.type === 'cp') {
-        if (moverIsWhite) {
-            if (eval_after.value < -200) return false
-            if (eval_after.value < eval_before.value - 150) return false
-        } else {
-            if (eval_after.value > 200) return false
-            if (eval_after.value > eval_before.value + 150) return false
-        }
-    } else {
-        return false
-    }
+function toMoverCp(score, moverIsWhite) {
+    const cp = scoreToCpComparable(score)
+    return moverIsWhite ? cp : -cp
+}
+
+// Win chance (0 to 1) for the mover. Mate scores end up near 0 or 1.
+function winChance(score, moverIsWhite) {
+    if (!score) return 0.5
+    const cp = Math.max(-1500, Math.min(1500, toMoverCp(score, moverIsWhite)))
+    return 1 / (1 + Math.exp(-WIN_CURVE_K * cp))
+}
+
+function classifyByPoints(lost) {
+    if (lost <= LIMIT_BEST) return "best"
+    if (lost <= LIMIT_EXCELLENT) return "excellent"
+    if (lost <= LIMIT_GOOD) return "good"
+    if (lost <= LIMIT_INACCURACY) return "inaccuracy"
+    if (lost <= LIMIT_MISTAKE) return "mistake"
+    return "blunder"
+}
+
+function checkBrilliant({ isBest, isBook, isSac, eval_before, eval_after, moverIsWhite, movesList, move }) {
+    if (!isBest || isBook || !isSac) return false
+    if (!eval_before || !eval_after) return false
+    const winBefore = winChance(eval_before, moverIsWhite)
+    const winAfter = winChance(eval_after, moverIsWhite)
+    if (winBefore > BRILLIANT_MAX_BEFORE) return false
+    if (winAfter < BRILLIANT_MIN_AFTER) return false
+    if (winAfter < winBefore - BRILLIANT_MAX_DROP) return false
     if (movesList && movesList.length > 0) {
         const opponentLastMove = movesList[movesList.length - 1]
-        if (opponentLastMove.slice(2, 4) === move.slice(2, 4)) return false
+        if (opponentLastMove.slice(2, 4) === move.slice(2, 4)) return false // recapture
     }
     return true
 }
 
-export async function getEvaluation(move, movesList, depth, onUpdate = null, beforeFen = null, afterFen = null, rootFen = null, multiPV = 1, deliversMate = false) {
+// ---- Main: Evaluate One Move --------------------------------------------
+export async function getEvaluation(move, movesList, depth, onUpdate = null, beforeFen = null, afterFen = null, rootFen = null, multiPV = 1, deliversMate = false, deliversStalemate = false) {
     const myId = analysisId
+    const hasCustomRoot = !!(rootFen && rootFen !== STARTPOS_FEN)
+    const afterMoves = move ? [...movesList, move] : movesList
+    const rootSideIsWhite = hasCustomRoot ? (rootFen.split(' ')[1] !== 'b') : true
+    const moverIsWhite = rootSideIsWhite ? (afterMoves.length % 2 === 1) : (afterMoves.length % 2 === 0)
 
-    if (deliversMate) {
-        const before = await analyzePosition(movesList, 10, null, 2, rootFen)
+    // The game ended with this move (checkmate or stalemate): the engine gives no score.
+    if (deliversMate || deliversStalemate) {
+        // "Before" uses the same depth and MultiPV 1, so it is usually a cache hit.
+        const before = await analyzePosition(movesList, depth, null, 1, rootFen)
         if (analysisId !== myId) return null
+        let accuracy = "none"
+        let eval_after = null
+        if (move) {
+            if (deliversMate) {
+                accuracy = "best"
+            } else {
+                eval_after = ensureScoreFields({ type: "cp", value: 0 })
+                const mine = before?.evaluation ? toMoverCp(before.evaluation, moverIsWhite) : 0
+                const lost = Math.max(0, winChance(before?.evaluation, moverIsWhite) - 0.5)
+                // Clearly losing (down 3 pawns or more) and saved with stalemate = great
+                accuracy = mine <= -300 ? "great" : classifyByPoints(lost)
+            }
+        }
         const result = {
-            depth, move_played: move, best_move: before?.topMoves?.[0]?.Move ?? "", eval: null,
-            excellent_eval: null, third_eval: null, move_accuracy: "best", is_sacrifice: false,
-            best_line: [], excellent_line: [], third_line: [], moves_list: move ? [...movesList, move] : movesList,
+            depth, move_played: move, best_move: before?.topMoves?.[0]?.Move ?? "", eval: eval_after,
+            excellent_eval: null, third_eval: null, move_accuracy: accuracy, is_sacrifice: false,
+            best_line: [], excellent_line: [], third_line: [], moves_list: afterMoves,
         }
         if (onUpdate) onUpdate(result)
         return result
     }
 
-    const hasCustomRoot = !!(rootFen && rootFen !== STARTPOS_FEN)
-    const beforePromise = analyzePosition(movesList, 10, null, 2, rootFen)
     const isBook = isBookMove(movesList, move, hasCustomRoot)
-    const before = await beforePromise
+
+    // "Before" position: same depth, MultiPV 1.
+    // It is the same search as the previous move's "after" when MultiPV is 1, so it is cached.
+    const before = await analyzePosition(movesList, depth, null, 1, rootFen)
     if (analysisId !== myId || !before) return null
     const eval_before = before.evaluation
-    const top_moves = before.topMoves || []
-    const best_move = top_moves[0]?.Move ?? ""
-    const afterMoves = move ? [...movesList, move] : movesList
-    const rootSideIsWhite = hasCustomRoot ? (rootFen.split(' ')[1] !== 'b') : true
-    const side_to_move = rootSideIsWhite ? (afterMoves.length % 2 === 1 ? "w" : "b") : (afterMoves.length % 2 === 1 ? "b" : "w")
+    const best_move = before.topMoves?.[0]?.Move ?? ""
+    const isBest = !!move && best_move === move
+
+    // Extra checks only when the best move was played
+    let is_sacrifice = false
+    let isGreat = false
+    if (isBest && !isBook) {
+        is_sacrifice = isSacrifice(beforeFen, afterFen, move)
+        const opponentLastMove = movesList.length > 0 ? movesList[movesList.length - 1] : null
+        const isSimpleRecapture = !!opponentLastMove && opponentLastMove.slice(2, 4) === move.slice(2, 4)
+        const isFreeCapture = isHangingCapture(beforeFen, move)
+        if (!isSimpleRecapture && !isFreeCapture) {
+            // Small extra search to see the 2nd best move (needs MultiPV 2).
+            // We compare both lines from this same search, so the depth matches.
+            const top2Result = await analyzePosition(movesList, 10, null, 2, rootFen)
+            if (analysisId !== myId) return null
+            const t = top2Result?.topMoves || []
+            if (t[0]?.score && t[1]?.score) {
+                const gap = winChance(t[0].score, moverIsWhite) - winChance(t[1].score, moverIsWhite)
+                isGreat = gap >= GREAT_MIN_GAP
+            }
+        }
+    }
 
     function buildResult(eval_after, topMovesAfter, currentDepth) {
-        const best_line = topMovesAfter[0]?.line ?? []
-        const excellent_line = topMovesAfter[1]?.line ?? []
-        const third_line = topMovesAfter[2]?.line ?? []
-        let loss = 0
-        if (eval_before?.type === "cp" && eval_after?.type === "cp") {
-            loss = side_to_move === "w" ? eval_before.value - eval_after.value : eval_after.value - eval_before.value
-            loss = Math.max(0, loss)
-        }
         let accuracy = "none"
-        let is_sacrifice = false
         if (move) {
             if (isBook) {
                 accuracy = "book"
-            } else if (best_move === move && top_moves.length >= 1) {
-                is_sacrifice = isSacrifice(beforeFen, afterFen, move)
-                const moverIsWhite = side_to_move === "w"
-                const bestCp = scoreToCpComparable(top_moves[0]?.score)
-                const secondCp = top_moves[1] ? scoreToCpComparable(top_moves[1].score) : 0
-                const uniquenessGap = moverIsWhite ? (bestCp - secondCp) : (secondCp - bestCp)
-                const isBrilliant = checkBrilliant({ move, best_move, top_moves, isBook, eval_before, eval_after, side_to_move, movesList, is_sacrifice })
-                if (isBrilliant) {
-                    accuracy = "brilliant"
-                } else {
-                    const opponentLastMove = movesList && movesList.length > 0 ? movesList[movesList.length - 1] : null
-                    const isSimpleRecapture = opponentLastMove && opponentLastMove.slice(2, 4) === move.slice(2, 4)
-                    const isFreeCapture = isHangingCapture(beforeFen, move)
-                    const hasSecondMove = top_moves.length >= 2 && !!top_moves[1]?.score
-                    if (hasSecondMove && uniquenessGap > 100 && !isSimpleRecapture && !isFreeCapture) accuracy = "great"
-                    else accuracy = "best"
-                }
-            } else if (best_move === move || loss < 15) accuracy = "best"
-            else if (loss < 40) accuracy = "excellent"
-            else if (loss < 80) accuracy = "good"
-            else if (loss < 150) accuracy = "inaccuracy"
-            else if (loss < 300) accuracy = "mistake"
-            else accuracy = "blunder"
-        }
-        const moverIsWhite = side_to_move === "w"
-        if (eval_after?.type === "mate") {
-            const moverDeliversMate = moverIsWhite ? eval_after.value > 0 : eval_after.value < 0
-            if (moverDeliversMate) {
-                if (accuracy !== "brilliant" && best_move === move && topMovesAfter.length >= 2 && topMovesAfter[1]?.score?.type !== "mate") accuracy = "great"
-            } else if (eval_before?.type === "cp") {
-                const alreadyLostBig = moverIsWhite ? eval_before.value <= -700 : eval_before.value >= 700
-                const alreadyLostModerate = moverIsWhite ? eval_before.value <= -400 : eval_before.value >= 400
-                if (alreadyLostBig) accuracy = "inaccuracy"
-                else if (alreadyLostModerate) accuracy = "mistake"
-                else accuracy = "blunder"
+            } else if (isBest) {
+                if (checkBrilliant({ isBest, isBook, isSac: is_sacrifice, eval_before, eval_after, moverIsWhite, movesList, move })) accuracy = "brilliant"
+                else accuracy = isGreat ? "great" : "best"
+            } else if (eval_after) {
+                const lost = Math.max(0, winChance(eval_before, moverIsWhite) - winChance(eval_after, moverIsWhite))
+                accuracy = classifyByPoints(lost)
             }
-        }
-        if (side_to_move === "b") {
-            if (eval_before?.type === "mate" && eval_after?.type === "cp") {
-                if (eval_before.value < 0 && eval_after.value <= -700) accuracy = "inaccuracy"
-                else if (eval_before.value < 0 && eval_after.value > -700 && eval_after.value <= -400) accuracy = "mistake"
-                else accuracy = "blunder"
-            }
-            if (eval_before?.value <= -800 && eval_after?.value <= -300 && eval_after?.value >= -600) accuracy = "mistake"
-            else if (eval_before?.value <= -800 && eval_after?.value > eval_before?.value + 150 && eval_after?.value <= -600) accuracy = "inaccuracy"
-        }
-        if (side_to_move === "w") {
-            if (eval_before?.type === "mate" && eval_after?.type === "cp") {
-                if (eval_before.value > 0 && eval_after.value >= 700) accuracy = "inaccuracy"
-                else if (eval_before.value > 0 && eval_after.value >= 400 && eval_after.value < 700) accuracy = "mistake"
-                else accuracy = "blunder"
-            }
-            if (eval_before?.value >= 800 && eval_after?.value >= 300 && eval_after?.value <= 600) accuracy = "mistake"
-            else if (eval_before?.value >= 800 && eval_after?.value < eval_before?.value - 150 && eval_after?.value >= 600) accuracy = "inaccuracy"
-        }
-        if (eval_before?.type === "mate" && eval_after?.type === "mate") {
-            const hadMate = moverIsWhite ? eval_before.value > 0 : eval_before.value < 0
-            const hasMate = moverIsWhite ? eval_after.value > 0 : eval_after.value < 0
-            if (hadMate && !hasMate) accuracy = "blunder"
-            else if (!hadMate && hasMate) accuracy = "great"
         }
         return {
             depth: currentDepth, move_played: move, best_move, eval: eval_after,
             excellent_eval: topMovesAfter[1]?.score ?? null, third_eval: topMovesAfter[2]?.score ?? null,
-            move_accuracy: accuracy, is_sacrifice, best_line, excellent_line, third_line, moves_list: afterMoves,
+            move_accuracy: accuracy, is_sacrifice: isBest ? is_sacrifice : false,
+            best_line: topMovesAfter[0]?.line ?? [],
+            excellent_line: topMovesAfter[1]?.line ?? [],
+            third_line: topMovesAfter[2]?.line ?? [],
+            moves_list: afterMoves,
         }
     }
-    let afterFinal = await analyzePosition(
+
+    const afterFinal = await analyzePosition(
         afterMoves, depth,
         onUpdate ? (data) => onUpdate(buildResult(data.evaluation, data.topMoves, data.currentDepth)) : null,
         multiPV, rootFen

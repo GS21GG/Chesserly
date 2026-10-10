@@ -725,7 +725,6 @@
     }
   })
 
-  // ===== AUTO-SCROLL MOVES LIST (container-only, never scrolls the page) ==
   function scrollActiveMoveIntoView() {
     const container = movesScrollRef.value
     const list = movesListRef.value
@@ -752,7 +751,6 @@
   })
   watch(treeVersion, () => { rebuildEvalHistory() })
 
-  // ===== KEYBOARD SHORTCUTS HELP ===========================================
   const showShortcuts = ref(false)
   const shortcuts = [
     { keys: '← / →', desc: 'Previous / Next move' },
@@ -765,7 +763,6 @@
   ]
   function toggleShortcuts() { showShortcuts.value = !showShortcuts.value }
 
-  // ===== MOVE NOTES ========================================================
   const editingNoteNodeId = ref(null)
   const noteDraft = ref('')
   function openNoteEditor(nodeId) {
@@ -789,14 +786,12 @@
     noteDraft.value = ''
   }
 
-  // ===== REPORT MAXIMIZE ===================================================
   const isReportMaximized = ref(false)
   function toggleReportMaximize() { isReportMaximized.value = !isReportMaximized.value }
   watch(isReportMaximized, (max) => {
     document.body.style.overflow = max ? 'hidden' : ''
   })
 
-  // ✦ NEW: Start Review — exits the maximized report and goes to moves
   function startReview() {
     isReportMaximized.value = false
     activeTab.value = 'moves'
@@ -997,7 +992,8 @@
       },
       beforeFen, afterFen, moveTree.fen,
       multiPVToUse,
-      chess.isCheckmate()
+      chess.isCheckmate(),
+      chess.isStalemate()
     )
     isAnalyzing.value = false
   }
@@ -1008,6 +1004,7 @@
   }
 
   function formatEval(evalObj) {
+    if (chess.isStalemate()) return '1/2-1/2'
     if (evalObj) {
       if (evalObj.type === "cp") return (evalObj.value / 100).toFixed(2)
       if (evalObj.type === "mate") return `M${evalObj.value}`
