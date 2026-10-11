@@ -26,6 +26,9 @@
   let engineReady = false
 
   onMounted(async () => {
+    window.addEventListener('pointerdown', unlockAudio)
+    window.addEventListener('keydown', unlockAudio)
+    loadSounds()
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('click', closeContextMenu)
     window.addEventListener('scroll', closeContextMenu, true)
@@ -45,6 +48,8 @@
   })
 
   onBeforeUnmount(() => {
+    window.removeEventListener('pointerdown', unlockAudio)
+    window.removeEventListener('keydown', unlockAudio)
     window.removeEventListener('keydown', handleKeyDown)
     window.removeEventListener('click', closeContextMenu)
     window.removeEventListener('scroll', closeContextMenu, true)
@@ -100,18 +105,50 @@
   const activeTab = ref('moves')
   const contextMenu = ref({ visible: false, x: 0, y: 0, nodeId: null })
   const shareMenuOpen = ref(false)
+  const lineStart = ref({ turn: 'w', num: 1 })
 
-  const audioCache = {
-    move: new Audio(moveSfx),
-    capture: new Audio(captureSfx),
-    check: new Audio(checkSfx),
-    castle: new Audio(castleSfx),
-    promote: new Audio(promoteSfx)
+  function numberedLine(sans) {
+    let { turn, num } = lineStart.value
+    return sans.map((san, i) => {
+      let prefix = ''
+      if (turn === 'w') prefix = `${num}.`
+      else if (i === 0) prefix = `${num}... `
+      if (turn === 'b') num++
+      turn = turn === 'w' ? 'b' : 'w'
+      return { san, prefix }
+    })
   }
-  Object.values(audioCache).forEach(audio => {
-    audio.preload = 'auto'
-    audio.volume = 0.6
-  })
+
+  const soundUrls = { move: moveSfx, capture: captureSfx, check: checkSfx, castle: castleSfx, promote: promoteSfx }
+  const audioBuffers = {}
+  let audioCtx = null
+  let masterGain = null
+
+  function getAudioCtx() {
+    if (audioCtx) return audioCtx
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (!AC) return null
+    audioCtx = new AC()
+    masterGain = audioCtx.createGain()
+    masterGain.gain.value = 0.6
+    masterGain.connect(audioCtx.destination)
+    return audioCtx
+  }
+
+  async function loadSounds() {
+    const ctx = getAudioCtx()
+    if (!ctx) return
+    await Promise.all(Object.entries(soundUrls).map(async ([name, url]) => {
+      try {
+        const res = await fetch(url)
+        audioBuffers[name] = await ctx.decodeAudioData(await res.arrayBuffer())
+      } catch (e) {}
+    }))
+  }
+
+  function unlockAudio() {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume()
+  }
 
   // --- Engine Toggle & MultiPV State ---
   const isEngineEnabled = ref(true)
@@ -525,15 +562,14 @@
   }
 
   function playSound(type) {
-    if (!soundOn.value) return
-    const audio = audioCache[type]
-    if (!audio) return
-    try {
-      const clone = audio.cloneNode()
-      clone.volume = audio.volume
-      clone.preload = 'auto'
-      clone.play().catch(() => {})
-    } catch (e) {}
+    if (!soundOn.value || !audioCtx) return
+    const buffer = audioBuffers[type]
+    if (!buffer) return
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    const src = audioCtx.createBufferSource()
+    src.buffer = buffer
+    src.connect(masterGain)
+    src.start(0)
   }
 
   function soundForLastMove(sanMove) {
@@ -1076,6 +1112,8 @@
   }
 
   function uciLine() {
+    const fenParts = chess.fen().split(' ')
+    lineStart.value = { turn: fenParts[1], num: Number(fenParts[5]) || 1 }
     sanLine.value = []
     bestArrowSquares.value = null
     if (!moveData.value?.best_line) return
@@ -2225,12 +2263,12 @@
           <div class="line pretty-scroll" :class="{ analyzing: isAnalyzing }">
             <span class="evalnum2">{{ formatEval(moveData?.eval) }}</span>
             <span
-              v-for="(move, idx) in sanLine"
+              v-for="(t, idx) in numberedLine(sanLine)"
               :key="'best-' + idx"
               class="line-move"
               @click="playLineMoves(moveData.best_line, idx + 1)"
             >
-              {{ prettyMove(move) }}&nbsp;
+              <span v-if="t.prefix" class="line-num">{{ t.prefix }}</span>{{ prettyMove(t.san) }}&nbsp;
             </span>
           </div>
           <div
@@ -2239,12 +2277,12 @@
           >
             <span class="evalnum3">{{ moveData?.excellent_eval ? formatEval(moveData.excellent_eval) : " " }}</span>
             <span
-              v-for="(move, idx) in excellentSanLine"
+              v-for="(t, idx) in numberedLine(excellentSanLine)"
               :key="'exc-' + idx"
               class="line-move"
               @click="playLineMoves(moveData.excellent_line, idx + 1)"
             >
-              {{ prettyMove(move) }}&nbsp;
+              <span v-if="t.prefix" class="line-num">{{ t.prefix }}</span>{{ prettyMove(t.san) }}&nbsp;
             </span>
           </div>
           <div
@@ -2253,12 +2291,12 @@
           >
             <span class="evalnum3">{{ moveData?.third_eval ? formatEval(moveData.third_eval) : " " }}</span>
             <span
-              v-for="(move, idx) in thirdSanLine"
+              v-for="(t, idx) in numberedLine(thirdSanLine)"
               :key="'third-' + idx"
               class="line-move"
               @click="playLineMoves(moveData.third_line, idx + 1)"
             >
-              {{ prettyMove(move) }}&nbsp;
+              <span v-if="t.prefix" class="line-num">{{ t.prefix }}</span>{{ prettyMove(t.san) }}&nbsp;
             </span>
           </div>
           <p :style="{ color: color }" class="accuracydescribtion">
@@ -2269,7 +2307,6 @@
           </p>
         </div>
       </div>
-
       <div class="moves" ref="movesScrollRef">
         <div class="tabs-toggle">
           <button
@@ -2315,7 +2352,7 @@
                   <span v-if="cell.showNum" class="move-num"
                     >{{ cell.displayNum }}{{ cell.isWhite ? '.' : '...' }}</span
                   >
-                  <span class="move-san-text">{{ cell.node.san }}</span>
+                  <span class="move-san-text">{{ prettyMove(cell.node.san) }}</span>
                   <span
                     v-if="cell.node.note"
                     class="note-indicator"
@@ -2333,8 +2370,6 @@
             </div>
           </template>
         </div>
-
-        <!-- ============ REPORT (teleported to body when maximized) ============ -->
         <Teleport
           to="body"
           :disabled="!isReportMaximized"
@@ -2524,8 +2559,6 @@
                 ></span>
               </div>
             </div>
-
-            <!-- ===== MAXIMIZED-ONLY SECTIONS ===== -->
             <template v-if="isReportMaximized">
               <div class="report-max-grid">
                 <div class="report-card">
@@ -3750,6 +3783,7 @@
   }
 
   .line-move { cursor: pointer; padding: 0 2px; border-radius: 4px; }
+  .line-num { color: rgba(234, 228, 216, 0.5); margin-right: 1px; }
   .line-move:hover { background: rgba(103, 122, 228, 0.3); }
 
   .toast {
