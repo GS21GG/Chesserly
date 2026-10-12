@@ -2095,44 +2095,53 @@
           </span>
         </div>
 
+        <!-- BOARD TOOLS -->
         <div class="boardtools">
           <div class="boardtools-left">
             <button
-              class="toolbar-icon-btn"
+              class="bt-btn bt-ghost"
               @click="toggleShortcuts"
               title="Keyboard shortcuts (?)"
+              aria-label="Keyboard shortcuts"
             >
-              ?
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7" />
+                <path d="M12 17h.01" />
+              </svg>
             </button>
           </div>
+
           <div class="boardtools-nav">
             <button
-              class="jumpstart"
+              class="bt-btn"
               @click="goToStart"
               :disabled="isImporting || currentNode.parent === null"
-              title="Jump to start"
+              title="Jump to start (Home)"
+              aria-label="Jump to start"
             >
-              &lt;&lt;
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+              </svg>
             </button>
             <button
-              class="undo"
+              class="bt-btn"
               @click="undoAccuracy"
-              title="previous"
               :disabled="isImporting || currentNode.parent === null"
+              title="Previous (←)"
+              aria-label="Previous move"
             >
-              &lt;-
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
             </button>
-            <button class="reverse" @click="flipBoard" title="Flip board (F)" aria-label="Flip board">
-              <svg
-                viewBox="0 0 24 24"
-                width="17"
-                height="17"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.1"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
+            <button
+              class="bt-btn bt-accent"
+              @click="flipBoard"
+              title="Flip board (F)"
+              aria-label="Flip board"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M7 4v13" />
                 <path d="M3.5 13.5 7 17l3.5-3.5" />
                 <path d="M17 20V7" />
@@ -2140,28 +2149,40 @@
               </svg>
             </button>
             <button
-              class="redo"
-              title="next"
+              class="bt-btn"
               @click="redoAccuracy"
               :disabled="isImporting || currentNode.children.length === 0"
+              title="Next (→)"
+              aria-label="Next move"
             >
-              -&gt;
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
             </button>
             <button
-              class="jumpend"
+              class="bt-btn"
               @click="goToEnd"
               :disabled="isImporting || currentNode.children.length === 0"
+              title="Jump to end (End)"
+              aria-label="Jump to end"
             >
-              &gt;&gt;
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 17l5-5-5-5M13 17l5-5-5-5" />
+              </svg>
             </button>
           </div>
+
           <div class="share-menu-wrap">
             <button
-              class="toolbar-icon-btn"
+              class="bt-btn bt-ghost"
               @click="toggleShareMenu"
               title="Copy game"
+              aria-label="Copy game"
             >
-              📋
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="11" height="11" rx="2.5" />
+                <path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H16" />
+              </svg>
             </button>
             <div v-if="shareMenuOpen" class="share-menu">
               <button @click="copyPGN(); shareMenuOpen = false">
@@ -2307,6 +2328,7 @@
           </p>
         </div>
       </div>
+
       <div class="moves" ref="movesScrollRef">
         <div class="tabs-toggle">
           <button
@@ -2370,6 +2392,8 @@
             </div>
           </template>
         </div>
+
+        <!-- ============ REPORT (teleported to body when maximized) ============ -->
         <Teleport
           to="body"
           :disabled="!isReportMaximized"
@@ -2379,7 +2403,6 @@
             <div class="report-header">
               <h3 class="report-title">Game Report</h3>
               <div class="report-header-actions">
-                <!-- ✦ NEW: Start Review button in the maximized report -->
                 <button
                   v-if="isReportMaximized"
                   class="start-review-btn"
@@ -2435,82 +2458,47 @@
               </div>
             </div>
 
-            <div class="report-columns">
-              <div class="report-col">
-                <div class="report-side-header">
-                  <span class="side-swatch white-swatch"></span>
-                  <span>{{ whiteName }}</span>
-                </div>
-                <div class="accuracy-score" v-if="gameReportStats.white.accuracy !== null">
-                  <img v-if="accuracySymbol(accuracyToClass(gameReportStats.white.accuracy))" :src="accuracySymbol(accuracyToClass(gameReportStats.white.accuracy))" class="acc-logo-main" />
-                  {{ gameReportStats.white.accuracy.toFixed(1) }}
-                  <span class="accuracy-percent">%</span>
-                </div>
-                <div class="accuracy-score empty" v-else>—</div>
-                <div class="est-rating" v-if="estimatedRatings.white !== null">
-                  <span class="est-rating-value">{{ estimatedRatings.white }}</span>
-                </div>
-                <div class="est-rating empty" v-else>
-                  <span class="est-rating-value">—</span>
-                </div>
-                <div
-                  v-for="key in classificationOrder"
-                  :key="'w-' + key"
-                  class="report-row"
-                  :class="{
-                    dim: gameReportStats.white.counts[key] === 0,
-                    clickable: gameReportStats.white.counts[key] > 0
-                  }"
-                  @click="jumpToClassification('white', key)"
-                >
-                  <img :src="accuracySymbol(key)" class="report-row-icon" />
-                  <span class="report-row-label" :style="{ color: classificationMeta[key].color }">
-                    {{ classificationMeta[key].label }}
-                  </span>
-                  <span class="report-row-count">{{ gameReportStats.white.counts[key] }}</span>
-                </div>
-              </div>
-              <div class="report-col">
-                <div class="report-side-header">
-                  <span class="side-swatch black-swatch"></span>
-                  <span>{{ blackName }}</span>
-                </div>
-                <div class="accuracy-score" v-if="gameReportStats.black.accuracy !== null">
-                  <img v-if="accuracySymbol(accuracyToClass(gameReportStats.black.accuracy))" :src="accuracySymbol(accuracyToClass(gameReportStats.black.accuracy))" class="acc-logo-main" />
-                  {{ gameReportStats.black.accuracy.toFixed(1) }}
-                  <span class="accuracy-percent">%</span>
-                </div>
-                <div class="accuracy-score empty" v-else>—</div>
-                <div class="est-rating" v-if="estimatedRatings.black !== null">
-                  <span class="est-rating-value">{{ estimatedRatings.black }}</span>
-                </div>
-                <div class="est-rating empty" v-else>
-                  <span class="est-rating-value">—</span>
-                </div>
-                <div
-                  v-for="key in classificationOrder"
-                  :key="'b-' + key"
-                  class="report-row"
-                  :class="{
-                    dim: gameReportStats.black.counts[key] === 0,
-                    clickable: gameReportStats.black.counts[key] > 0
-                  }"
-                  @click="jumpToClassification('black', key)"
-                >
-                  <img :src="accuracySymbol(key)" class="report-row-icon" />
-                  <span class="report-row-label" :style="{ color: classificationMeta[key].color }">
-                    {{ classificationMeta[key].label }}
-                  </span>
-                  <span class="report-row-count">{{ gameReportStats.black.counts[key] }}</span>
-                </div>
+            <!-- Score boxes -->
+            <div class="score-row">
+              <div v-for="side in ['white', 'black']" :key="side" class="score-box" :class="side">
+                <span class="score-num">
+                  {{ gameReportStats[side].accuracy !== null ? gameReportStats[side].accuracy.toFixed(1) + '%' : '—' }}
+                </span>
+                <span class="score-rating">{{ estimatedRatings[side] ?? '—' }}</span>
               </div>
             </div>
 
-            <div class="eval-graph-card" v-if="evalGraphGeom">
-              <div class="eval-graph-head">
-                <span class="eval-graph-title">Evaluation Graph</span>
-                <span class="eval-graph-hint">Hover to inspect · Click to jump to a move</span>
+            <!-- Move table -->
+            <div class="cls-table">
+              <div class="cls-head">
+                <span></span>
+                <span class="cls-name">{{ whiteName }}</span>
+                <span></span>
+                <span class="cls-name">{{ blackName }}</span>
               </div>
+
+              <div v-for="key in classificationOrder" :key="key" class="cls-line">
+                <span class="cls-label" :style="{ color: classificationMeta[key].color }">
+                  {{ classificationMeta[key].label }}
+                </span>
+                <span
+                  class="cls-num"
+                  :class="{ dim: gameReportStats.white.counts[key] === 0 }"
+                  :style="{ color: classificationMeta[key].color }"
+                  @click="jumpToClassification('white', key)"
+                >{{ gameReportStats.white.counts[key] }}</span>
+                <img :src="accuracySymbol(key)" class="cls-icon" />
+                <span
+                  class="cls-num"
+                  :class="{ dim: gameReportStats.black.counts[key] === 0 }"
+                  :style="{ color: classificationMeta[key].color }"
+                  @click="jumpToClassification('black', key)"
+                >{{ gameReportStats.black.counts[key] }}</span>
+              </div>
+            </div>
+
+            <!-- Eval graph -->
+            <div class="eval-graph-card" v-if="evalGraphGeom">
               <div
                 class="eval-graph-area"
                 @click="evalGraphClick"
@@ -2559,135 +2547,113 @@
                 ></span>
               </div>
             </div>
+
+            <!-- ===== MAXIMIZED-ONLY CARDS ===== -->
             <template v-if="isReportMaximized">
               <div class="report-max-grid">
-                <div class="report-card">
-                  <h4 class="report-card-title">Move Classification</h4>
-                  <div v-for="bar in reportBars" :key="bar.side" class="report-bar-block">
-                    <div class="report-bar-label">
-                      <span class="side-swatch" :class="bar.side + '-swatch'"></span>
-                      {{ bar.side === 'white' ? whiteName : blackName }}
-                      <span class="report-bar-total">{{ bar.total }} moves</span>
-                    </div>
-                    <div class="report-bar">
-                      <div
-                        v-for="seg in bar.segments"
-                        :key="seg.key"
-                        class="report-bar-seg"
-                        :style="{ width: seg.percent + '%', background: seg.meta.color }"
-                        :title="`${seg.meta.label}: ${seg.count}`"
-                      ></div>
+
+                <!-- Accuracy by Phase -->
+                <div class="report-card" v-if="gameExtendedStats">
+                  <div class="rc-head">
+                    <h4 class="rc-title">Accuracy by Phase</h4>
+                    <div class="rc-legend">
+                      <span class="rc-legend-item"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                      <span class="rc-legend-item"><span class="side-swatch black-swatch"></span>{{ blackName }}</span>
                     </div>
                   </div>
-                </div>
-
-                <div class="report-card" v-if="gameExtendedStats">
-                  <h4 class="report-card-title">Accuracy by Phase</h4>
-                  <div class="phase-rows">
-                    <div v-for="phase in ['opening', 'middlegame', 'endgame']" :key="phase" class="phase-row">
-                      <span class="phase-row-name">{{ phase.charAt(0).toUpperCase() + phase.slice(1) }}</span>
-                      <div class="phase-row-vals">
-                        <span class="phase-val-chip" :style="{ color: accColorForWeight(gameExtendedStats.white.phases[phase]) }">
-                          <img v-if="accuracySymbol(accuracyToClass(gameExtendedStats.white.phases[phase]))" :src="accuracySymbol(accuracyToClass(gameExtendedStats.white.phases[phase]))" class="acc-logo-small" />
-                          {{ fmtAcc(gameExtendedStats.white.phases[phase]) }}
-                        </span>
-                        <span class="phase-val-chip" :style="{ color: accColorForWeight(gameExtendedStats.black.phases[phase]) }">
-                          <img v-if="accuracySymbol(accuracyToClass(gameExtendedStats.black.phases[phase]))" :src="accuracySymbol(accuracyToClass(gameExtendedStats.black.phases[phase]))" class="acc-logo-small" />
-                          {{ fmtAcc(gameExtendedStats.black.phases[phase]) }}
-                        </span>
-                      </div>
-                      <div class="phase-row-bars">
-                        <div class="phase-mini-bar">
+                  <div class="phase-list">
+                    <div v-for="phase in ['opening', 'middlegame', 'endgame']" :key="phase" class="phase-item">
+                      <span class="phase-name">{{ phase }}</span>
+                      <div class="phase-line">
+                        <span class="side-swatch white-swatch"></span>
+                        <div class="phase-bar">
                           <div :style="{ width: (gameExtendedStats.white.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.white.phases[phase]) }"></div>
                         </div>
-                        <div class="phase-mini-bar">
+                        <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.white.phases[phase]) }">{{ fmtAcc(gameExtendedStats.white.phases[phase]) }}</span>
+                      </div>
+                      <div class="phase-line">
+                        <span class="side-swatch black-swatch"></span>
+                        <div class="phase-bar">
                           <div :style="{ width: (gameExtendedStats.black.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.black.phases[phase]) }"></div>
                         </div>
+                        <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.black.phases[phase]) }">{{ fmtAcc(gameExtendedStats.black.phases[phase]) }}</span>
                       </div>
                     </div>
                   </div>
-                  <p class="report-card-note">Top bar / value = {{ whiteName }} · Bottom = {{ blackName }}</p>
                 </div>
 
+                <!-- Game Stats -->
                 <div class="report-card" v-if="gameExtendedStats">
-                  <h4 class="report-card-title">Accuracy by Move Number</h4>
-                  <div class="bucket-rows">
-                    <div v-for="label in moveBucketOrderLocal" :key="label" class="bucket-row">
-                      <span class="bucket-row-label">{{ label }}</span>
-                      <span class="bucket-row-val" :style="{ color: accColorForWeight(gameExtendedStats.white.buckets.find(b => b.label === label)?.acc ?? null) }">
-                        <img v-if="accuracySymbol(accuracyToClass(gameExtendedStats.white.buckets.find(b => b.label === label)?.acc))" :src="accuracySymbol(accuracyToClass(gameExtendedStats.white.buckets.find(b => b.label === label)?.acc))" class="acc-logo-small" />
-                        {{ fmtAcc(gameExtendedStats.white.buckets.find(b => b.label === label)?.acc) }}
-                      </span>
-                      <span class="bucket-row-val" :style="{ color: accColorForWeight(gameExtendedStats.black.buckets.find(b => b.label === label)?.acc ?? null) }">
-                        <img v-if="accuracySymbol(accuracyToClass(gameExtendedStats.black.buckets.find(b => b.label === label)?.acc))" :src="accuracySymbol(accuracyToClass(gameExtendedStats.black.buckets.find(b => b.label === label)?.acc))" class="acc-logo-small" />
-                        {{ fmtAcc(gameExtendedStats.black.buckets.find(b => b.label === label)?.acc) }}
-                      </span>
-                    </div>
+                  <div class="rc-head">
+                    <h4 class="rc-title">Game Stats</h4>
                   </div>
-                  <div class="bucket-legend">
-                    <span class="side-swatch white-swatch"></span> {{ whiteName }}
-                    <span class="side-swatch black-swatch"></span> {{ blackName }}
-                  </div>
-                </div>
-
-                <div class="report-card" v-if="gameExtendedStats">
-                  <h4 class="report-card-title">Game Stats</h4>
-                  <div class="gstats-table">
-                    <div class="gstats-head">
-                      <span></span><span>{{ whiteName }}</span><span>{{ blackName }}</span>
+                  <div class="stat-table">
+                    <div class="stat-row stat-head">
+                      <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                      <span></span>
+                      <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
                     </div>
-                    <div class="gstats-row">
-                      <span>Checks</span><span>{{ gameExtendedStats.white.checks }}</span><span>{{ gameExtendedStats.black.checks }}</span>
+                    <div class="stat-row">
+                      <span class="stat-val">{{ gameExtendedStats.white.checks }}</span>
+                      <span class="stat-label">Checks</span>
+                      <span class="stat-val right">{{ gameExtendedStats.black.checks }}</span>
                     </div>
-                    <div class="gstats-row">
-                      <span>Captures</span><span>{{ gameExtendedStats.white.captures }}</span><span>{{ gameExtendedStats.black.captures }}</span>
+                    <div class="stat-row">
+                      <span class="stat-val">{{ gameExtendedStats.white.captures }}</span>
+                      <span class="stat-label">Captures</span>
+                      <span class="stat-val right">{{ gameExtendedStats.black.captures }}</span>
                     </div>
-                    <div class="gstats-row">
-                      <span>Pawns lost (eval)</span><span>{{ gameExtendedStats.white.cpLost }}</span><span>{{ gameExtendedStats.black.cpLost }}</span>
+                    <div class="stat-row">
+                      <span class="stat-val">{{ gameExtendedStats.white.cpLost }}</span>
+                      <span class="stat-label">Pawns lost</span>
+                      <span class="stat-val right">{{ gameExtendedStats.black.cpLost }}</span>
                     </div>
-                    <div class="gstats-row">
-                      <span>Swings gained</span><span>{{ gameExtendedStats.white.swingsGained }}</span><span>{{ gameExtendedStats.black.swingsGained }}</span>
+                    <div class="stat-row">
+                      <span class="stat-val">{{ gameExtendedStats.white.swingsGained }}</span>
+                      <span class="stat-label">Swings gained</span>
+                      <span class="stat-val right">{{ gameExtendedStats.black.swingsGained }}</span>
                     </div>
                   </div>
                 </div>
 
+                <!-- Accuracy by Piece -->
                 <div class="report-card" v-if="gamePieceStats.some(p => p.white.count || p.black.count)">
-                  <h4 class="report-card-title">Accuracy by Piece</h4>
-                  <div class="gstats-table">
-                    <div class="gstats-head">
-                      <span></span><span>{{ whiteName }}</span><span>{{ blackName }}</span>
+                  <div class="rc-head">
+                    <h4 class="rc-title">Accuracy by Piece</h4>
+                  </div>
+                  <div class="stat-table">
+                    <div class="stat-row stat-head">
+                      <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                      <span></span>
+                      <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
                     </div>
-                    <div v-for="p in gamePieceStats" :key="p.key" class="gstats-row piece-row">
-                      <span class="piece-cell">
-                        <span class="piece-sym">{{ p.symbol }}</span>
-                        {{ p.label }}
-                        <span class="piece-counts">({{ p.white.count }}/{{ p.black.count }})</span>
+                    <div v-for="p in gamePieceStats" :key="p.key" class="stat-row">
+                      <span class="stat-val" :style="{ color: accColorForWeight(p.white.acc) }">{{ fmtAcc(p.white.acc) }}</span>
+                      <span class="stat-label">
+                        <span class="piece-sym">{{ p.symbol }}</span>{{ p.label }}
+                        <span class="piece-counts">{{ p.white.count }}/{{ p.black.count }}</span>
                       </span>
-                      <span :style="{ color: accColorForWeight(p.white.acc) }">
-                        <img v-if="accuracySymbol(accuracyToClass(p.white.acc))" :src="accuracySymbol(accuracyToClass(p.white.acc))" class="acc-logo-small" />
-                        {{ fmtAcc(p.white.acc) }}
-                      </span>
-                      <span :style="{ color: accColorForWeight(p.black.acc) }">
-                        <img v-if="accuracySymbol(accuracyToClass(p.black.acc))" :src="accuracySymbol(accuracyToClass(p.black.acc))" class="acc-logo-small" />
-                        {{ fmtAcc(p.black.acc) }}
-                      </span>
+                      <span class="stat-val right" :style="{ color: accColorForWeight(p.black.acc) }">{{ fmtAcc(p.black.acc) }}</span>
                     </div>
                   </div>
-                  <p class="report-card-note">Move counts per side shown as ({{ whiteName }}/{{ blackName }})</p>
                 </div>
 
+                <!-- Key Moments -->
                 <div class="report-card" v-if="keyMoments.length">
-                  <h4 class="report-card-title">Key Moments</h4>
+                  <div class="rc-head">
+                    <h4 class="rc-title">Key Moments</h4>
+                    <span class="rc-sub">Tap to jump</span>
+                  </div>
                   <div class="moments-list">
                     <button v-for="m in keyMoments" :key="'km-' + m.nodeId" class="moment-row" @click="jumpToMoment(m)">
                       <span class="moment-side" :class="m.side"></span>
                       <span class="moment-san">{{ Math.ceil(m.ply / 2) }}{{ m.ply % 2 === 1 ? '.' : '...' }} {{ m.san }}</span>
                       <img v-if="accuracySymbol(m.accuracy)" :src="accuracySymbol(m.accuracy)" class="moment-icon" />
-                      <span class="moment-swing">{{ (m.swing / 100).toFixed(1) }} cp swing</span>
+                      <span class="moment-swing">{{ (m.swing / 100).toFixed(1) }}</span>
                     </button>
                   </div>
-                  <p class="report-card-note">Click a moment to jump to it on the board</p>
                 </div>
+
               </div>
             </template>
           </div>
@@ -2936,9 +2902,6 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* ✦ FIXED: touch-action: none on ALL board elements so pieces can be
-     dragged freely in any direction. Previously pan-y on the board was
-     stealing vertical drags before the piece could capture them. */
   :deep(.cg-wrap),
   :deep(cg-container),
   :deep(cg-board),
@@ -3595,19 +3558,20 @@
   .acc-badge { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
   .note-indicator { font-size: 0.62rem; opacity: 0.7; cursor: help; flex-shrink: 0; }
 
+  /* ===== BOARD TOOLS ======================================================= */
   .boardtools {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    min-height: 3.2rem;
     width: 100%;
     box-sizing: border-box;
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    border: 2px solid rgba(182, 173, 144, 0.4);
-    padding: 0.5rem 1rem;
-    border-radius: 10px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    margin: 0.4rem 0 0 0;
+    margin: 0.5rem 0 0;
+    padding: 0.45rem 0.6rem;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 16px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
   .boardtools-nav {
@@ -3615,44 +3579,65 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
+    gap: 0.25rem;
+    padding: 0.2rem;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 14px;
   }
 
   .boardtools-left { grid-column: 1; justify-self: start; }
   .share-menu-wrap { grid-column: 3; justify-self: end; position: relative; }
 
-  .toolbar-icon-btn {
-    display: flex;
+  .bt-btn {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--btn-idle);
-    width: clamp(30px, 6vw, 36px);
-    height: clamp(30px, 6vw, 36px);
+    width: 2.5rem;
+    height: 2.5rem;
     border: none;
-    border-radius: 12px;
-    font-size: clamp(14px, 3vw, 16px);
-    color: #e8e8d0;
+    border-radius: 11px;
+    background: transparent;
+    color: rgba(244, 240, 227, 0.8);
     cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
     flex-shrink: 0;
-    transition: all 0.2s ease;
   }
 
-  .toolbar-icon-btn:hover {
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  .bt-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  .bt-btn:active:not(:disabled) { transform: scale(0.92); }
+  .bt-btn:disabled { opacity: 0.28; cursor: not-allowed; }
+  .bt-btn svg { display: block; }
+
+  .bt-ghost {
+    width: 2.25rem;
+    height: 2.25rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(244, 240, 227, 0.65);
+  }
+
+  .bt-accent {
+    background: linear-gradient(145deg, rgba(168, 217, 122, 0.22), rgba(106, 209, 63, 0.14));
+    color: #a8d97a;
+    box-shadow: inset 0 0 0 1px rgba(168, 217, 122, 0.25);
+  }
+
+  .bt-accent:hover:not(:disabled) {
+    background: linear-gradient(145deg, rgba(168, 217, 122, 0.32), rgba(106, 209, 63, 0.2));
+    color: #c4ee9c;
   }
 
   .share-menu {
     position: absolute;
-    bottom: 120%;
-    left: 0;
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    bottom: calc(100% + 8px);
+    right: 0;
+    left: auto;
+    background: #26241f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
-    min-width: 7.5rem;
+    min-width: 8rem;
     overflow: hidden;
     z-index: 50;
   }
@@ -3670,31 +3655,6 @@
 
   .share-menu button:hover { background: rgba(255, 255, 255, 0.08); }
   .share-menu button + button { border-top: 1px solid rgba(255, 255, 255, 0.08); }
-
-  .reverse, .undo, .redo, .jumpstart, .jumpend {
-    background-color: var(--btn-idle);
-    width: clamp(35px, 8vw, 40px);
-    height: clamp(35px, 8vw, 40px);
-    border: none;
-    border-radius: 15px;
-    font-size: clamp(16px, 4vw, 20px);
-    color: #e8e8d0;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .reverse svg { display: block; }
-  .reverse:disabled, .undo:disabled, .redo:disabled, .jumpstart:disabled, .jumpend:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .reverse:hover:not(:disabled), .undo:hover:not(:disabled), .redo:hover:not(:disabled),
-  .jumpstart:hover:not(:disabled), .jumpend:hover:not(:disabled) {
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-  }
 
   .evalnum {
     font-family: "JetBrains Mono", monospace;
@@ -3837,35 +3797,6 @@
     gap: 0.9rem;
   }
 
-  .report-columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-  }
-
-  .report-col {
-    min-width: 0;
-    background: linear-gradient(135deg, var(--list-1), var(--list-2));
-    border-radius: 14px;
-    padding: 0.8rem 0.5rem;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25);
-    box-sizing: border-box;
-  }
-
-  .report-side-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    font-family: serif;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    color: #f5f5dc;
-    font-size: 0.78rem;
-    margin-bottom: 0.5rem;
-  }
-
   .side-swatch {
     width: 0.65rem;
     height: 0.65rem;
@@ -3878,88 +3809,97 @@
   .white-swatch { background: #f4f0e3; }
   .black-swatch { background: #1a1a1a; }
 
-  .accuracy-score {
-    font-family: "JetBrains Mono", monospace;
-    font-size: clamp(1.2rem, 5vw, 1.7rem);
-    font-weight: 700;
-    color: #a8d97a;
-    text-align: center;
-    margin: 0.1rem 0 0.1rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
+  /* Score boxes */
+  .score-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-radius: 12px;
+    overflow: hidden;
   }
 
-  .accuracy-score.empty { color: rgba(245, 245, 220, 0.4); font-size: 1.2rem; }
-  .accuracy-percent { font-size: 0.6em; opacity: 0.75; }
-
-  .acc-logo-main { width: 1.4rem; height: 1.4rem; flex-shrink: 0; }
-  .acc-logo-small { width: 0.85rem; height: 0.85rem; flex-shrink: 0; }
-
-  .est-rating {
+  .score-box {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin-bottom: 0.8rem;
-    padding-bottom: 0.6rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 0.1rem;
+    padding: 0.7rem 0.5rem;
   }
 
-  .est-rating-label {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: rgba(245, 245, 220, 0.5);
+  .score-box.white { background: #f4f0e3; color: #1a1a1a; }
+  .score-box.black { background: #141414; color: #f4f0e3; }
+
+  .score-num {
+    font-size: clamp(1.3rem, 5vw, 1.7rem);
     font-weight: 600;
-    margin-bottom: 0.2rem;
+    line-height: 1.1;
   }
 
-  .est-rating-value {
+  .score-rating {
     font-family: "JetBrains Mono", monospace;
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #a8d97a;
+    font-size: 0.68rem;
+    font-weight: 900;
+    opacity: 1;
   }
 
-  .est-rating.empty .est-rating-value { color: rgba(245, 245, 220, 0.4); }
-
-  .report-row {
+  /* Move table */
+  .cls-table {
     display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.3rem;
-    border-radius: 8px;
-    transition: background 0.15s ease;
-    min-width: 0;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.8rem 0.9rem;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
   }
 
-  .report-row:hover { background: rgba(0, 0, 0, 0.12); }
-  .report-row.dim { opacity: 0.35; }
-  .report-row.clickable { cursor: pointer; }
-  .report-row.clickable:hover { background: rgba(103, 122, 228, 0.18); }
-  .report-row-icon { width: 16px; height: 16px; flex-shrink: 0; }
+  .cls-head,
+  .cls-line {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 2rem 1fr;
+    align-items: center;
+    gap: 0.3rem;
+  }
 
-  .report-row-label {
-    flex: 1;
-    font-size: 0.76rem;
+  .cls-head { padding-bottom: 0.3rem; }
+
+  .cls-name {
+    text-align: center;
+    font-size: 0.78rem;
     font-weight: 600;
+    color: rgba(244, 240, 227, 0.85);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .report-row-count {
-    font-family: "JetBrains Mono", monospace;
-    font-weight: 700;
-    color: #f4f0e3;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 6px;
-    padding: 0.05rem 0.4rem;
-    font-size: 0.76rem;
-    min-width: 1.3rem;
+  .cls-line { padding: 0.3rem 0; }
+
+  .cls-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cls-num {
     text-align: center;
-    flex-shrink: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+  }
+
+  .cls-num:hover { background: rgba(103, 122, 228, 0.18); }
+  .cls-num.dim { opacity: 0.4; cursor: default; }
+  .cls-num.dim:hover { background: none; }
+
+  .cls-icon {
+    width: 22px;
+    height: 22px;
+    justify-self: center;
   }
 
   /* ===== REPORT HEADER / MAXIMIZE / START REVIEW ========================== */
@@ -4068,14 +4008,20 @@
 
   .report.maximized .report-title { font-size: 1.15rem; }
 
-  .report.maximized .report-columns {
-    max-width: 760px;
+  .report.maximized .score-row,
+  .report.maximized .cls-table {
+    max-width: 560px;
     width: 100%;
     margin: 0 auto;
+    box-sizing: border-box;
   }
 
   .report.maximized .eval-graph-card { max-width: 960px; width: 100%; margin: 0 auto; }
   .report.maximized .eval-graph-area { height: 220px; }
+
+  .report.maximized > * {
+    flex-shrink: 0;
+  }
 
   .report-max-grid {
     display: grid;
@@ -4086,58 +4032,186 @@
     margin: 0 auto;
   }
 
+  /* ===== REPORT CARDS ===================================================== */
   .report-card {
-    background: linear-gradient(135deg, var(--list-1), var(--list-2));
-    border-radius: 14px;
-    padding: 1rem 1.1rem;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25);
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 18px;
+    padding: 1.1rem 1.2rem 1.2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem;
     min-width: 0;
   }
 
-  .report-card-title {
-    font-family: serif;
-    color: #f5f5dc;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 0.85rem;
-    margin: 0;
+  .rc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
-  .report-card-note {
+  .rc-title {
     margin: 0;
+    font-family: "Inter", sans-serif;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(245, 245, 220, 0.9);
+  }
+
+  .rc-sub { font-size: 0.7rem; color: rgba(244, 240, 227, 0.4); }
+
+  .rc-legend { display: flex; align-items: center; gap: 0.8rem; }
+  .rc-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     font-size: 0.7rem;
-    color: rgba(244, 240, 227, 0.45);
-    font-style: italic;
+    color: rgba(244, 240, 227, 0.6);
+    max-width: 7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Phase */
+  .phase-list { display: flex; flex-direction: column; gap: 1rem; }
+  .phase-item { display: flex; flex-direction: column; gap: 0.4rem; }
+  .phase-name {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    color: rgba(244, 240, 227, 0.55);
+  }
+  .phase-line {
+    display: grid;
+    grid-template-columns: 0.65rem 1fr 3.6rem;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .phase-bar {
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+  }
+  .phase-bar > div {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+  }
+  .phase-val {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  /* Stats + piece tables */
+  .stat-table { display: flex; flex-direction: column; gap: 0.3rem; }
+  .stat-row {
+    display: grid;
+    grid-template-columns: 4rem 1fr 4rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.035);
+  }
+  .stat-row.stat-head {
+    background: transparent;
+    padding-top: 0;
+    padding-bottom: 0.2rem;
+    grid-template-columns: 1fr 0.2rem 1fr;
+  }
+  .stat-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: rgba(244, 240, 227, 0.6);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stat-name.right { justify-content: flex-end; }
+  .stat-val {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #f4f0e3;
+  }
+  .stat-val.right { text-align: right; }
+  .stat-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    font-size: 0.74rem;
+    color: rgba(244, 240, 227, 0.55);
+    white-space: nowrap;
+  }
+  .piece-sym { font-size: 1rem; line-height: 1; }
+  .piece-counts {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.6rem;
+    color: rgba(244, 240, 227, 0.35);
+  }
+
+  /* Key moments */
+  .moments-list { display: flex; flex-direction: column; gap: 0.35rem; }
+
+  .moment-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    background: rgba(255, 255, 255, 0.035);
+    border: none;
+    border-radius: 10px;
+    color: #f4f0e3;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .moment-row:hover { background: rgba(103, 122, 228, 0.2); }
+
+  .moment-side { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .moment-side.white { background: #f4f0e3; }
+  .moment-side.black { background: #1a1a1a; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+
+  .moment-san {
+    font-weight: 700;
+    font-size: 0.85rem;
+    flex: 1;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .moment-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+  .moment-swing {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.7rem;
+    color: rgba(244, 240, 227, 0.55);
+    flex-shrink: 0;
   }
 
   /* ===== EVAL GRAPH ======================================================= */
   .eval-graph-card { display: flex; flex-direction: column; gap: 0.45rem; }
 
-  .eval-graph-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .eval-graph-title {
-    font-family: serif;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 0.8rem;
-    color: #f5f5dc;
-  }
-
-  .eval-graph-hint { font-size: 0.68rem; color: rgba(244, 240, 227, 0.45); }
-
   .eval-graph-area {
     position: relative;
     height: 110px;
-    border-radius: 10px;
+    border-radius: 14px;
     overflow: hidden;
     cursor: pointer;
     box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
@@ -4246,203 +4320,6 @@
   .eg-dot.inaccuracy, .eg-hover-dot.inaccuracy { background: #f2bc43; }
   .eg-dot.mistake, .eg-hover-dot.mistake { background: #f38800; }
   .eg-dot.blunder, .eg-hover-dot.blunder { background: #ff0000; }
-
-  /* ===== MAXIMIZED CARDS =================================================== */
-  .report-bar-block { display: flex; flex-direction: column; gap: 0.3rem; }
-
-  .report-bar-label {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: rgba(244, 240, 227, 0.85);
-    text-transform: capitalize;
-  }
-
-  .report-bar-total {
-    margin-left: auto;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.68rem;
-    color: rgba(244, 240, 227, 0.5);
-  }
-
-  .report-bar {
-    display: flex;
-    width: 100%;
-    height: 0.9rem;
-    border-radius: 6px;
-    overflow: hidden;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
-  }
-
-  .report-bar-seg { height: 100%; }
-
-  .phase-rows { display: flex; flex-direction: column; gap: 0.7rem; }
-
-  .phase-row {
-    display: grid;
-    grid-template-columns: 5.2rem 1fr;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .phase-row-name {
-    font-size: 0.78rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: rgba(244, 240, 227, 0.75);
-  }
-
-  .phase-row-vals { display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; }
-
-  .phase-val-chip {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.78rem;
-    font-weight: 700;
-    min-width: 3.4rem;
-    text-align: right;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.3rem;
-  }
-
-  .color-indicator {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 6px;
-    vertical-align: middle;
-    flex-shrink: 0;
-  }
-
-  .color-indicator.white { background: #f4f0e3; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3); }
-  .color-indicator.black { background: #1a1a1a; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
-
-  .phase-row-bars { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; }
-
-  .phase-mini-bar { height: 6px; background: rgba(0, 0, 0, 0.35); border-radius: 4px; overflow: hidden; }
-  .phase-mini-bar div { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
-
-  .bucket-rows { display: flex; flex-direction: column; gap: 0.35rem; }
-
-  .bucket-row {
-    display: grid;
-    grid-template-columns: 3.2rem 1fr 1fr;
-    gap: 0.5rem;
-    align-items: center;
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 8px;
-    padding: 0.3rem 0.5rem;
-  }
-
-  .bucket-row-label { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; color: rgba(244, 240, 227, 0.6); font-weight: 700; }
-  .bucket-row-val { 
-    font-family: "JetBrains Mono", monospace; 
-    font-size: 0.8rem; 
-    font-weight: 700; 
-    text-align: center; 
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.3rem;
-  }
-  .bucket-legend { display: flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: rgba(244, 240, 227, 0.6); }
-  .bucket-legend .side-swatch { margin-left: 0.4rem; }
-
-  .gstats-table { display: flex; flex-direction: column; gap: 0.3rem; }
-
-  .gstats-head, .gstats-row {
-    display: grid;
-    grid-template-columns: 1fr 3.5rem 3.5rem;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .gstats-head {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: rgba(244, 240, 227, 0.55);
-    font-weight: 700;
-  }
-
-  .gstats-head span:not(:first-child), .gstats-row span:not(:first-child) {
-    text-align: right;
-    font-family: "JetBrains Mono", monospace;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.3rem;
-  }
-
-  .gstats-row {
-    font-size: 0.82rem;
-    color: rgba(244, 240, 227, 0.85);
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 8px;
-    padding: 0.32rem 0.5rem;
-  }
-
-  .gstats-row span:first-child { color: rgba(244, 240, 227, 0.7); }
-  .gstats-row.piece-row { grid-template-columns: 1fr 4.6rem 4.6rem; }
-
-  .piece-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-
-  .piece-sym { font-size: 1rem; line-height: 1; flex-shrink: 0; }
-  .piece-counts { font-family: "JetBrains Mono", monospace; font-size: 0.62rem; color: rgba(244, 240, 227, 0.45); }
-
-  .moments-list { display: flex; flex-direction: column; gap: 0.35rem; }
-
-  .moment-row {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    background: rgba(0, 0, 0, 0.12);
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 0.4rem 0.55rem;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    color: #f4f0e3;
-    width: 100%;
-  }
-
-  .moment-row:hover { background: rgba(103, 122, 228, 0.18); border-color: rgba(220, 228, 255, 0.35); }
-
-  .moment-side { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .moment-side.white { background: #f4f0e3; }
-  .moment-side.black { background: #1a1a1a; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
-
-  .moment-san {
-    font-weight: 700;
-    font-size: 0.85rem;
-    flex: 1;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .moment-icon { width: 18px; height: 18px; flex-shrink: 0; }
-
-  .moment-swing {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.7rem;
-    color: rgba(244, 240, 227, 0.55);
-    flex-shrink: 0;
-  }
 
   /* ===== NOTE EDITOR ====================================================== */
   .note-overlay {
@@ -4751,11 +4628,10 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
-  /* ===== ✦ MOBILE: STICKY TITLE + MINIMAL SCROLL =========================== */
+  /* ===== MOBILE: STICKY TITLE + MINIMAL SCROLL ============================= */
   @media (max-width: 767px) {
     .acc-badge { width: 19px; height: 19px; }
     .board-acc-icon { width: 5.2%; height: 5.2%; }
-    .report-row-icon { width: 18px; height: 18px; }
 
     .grid-layout {
       display: flex;
@@ -4777,7 +4653,6 @@
       display: contents;
     }
 
-    /* ✦ sticky title at top */
     .title-slot {
       order: 0;
       position: sticky;
@@ -4857,7 +4732,6 @@
       gap: 0.35rem;
     }
 
-    /* ✦ hide "ANALYSIS" title on mobile */
     .analyzis { display: none !important; }
     .analysis-title-row { min-height: 0; display: none !important; }
 
@@ -4904,7 +4778,6 @@
       50% { box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(106, 209, 63, 0.55); }
     }
 
-    /* shorter moves panel for minimal scrolling */
     .moves {
       flex: 0 1 auto;
       min-height: 300px;
@@ -4943,15 +4816,13 @@
 
     .eg-tooltip { font-size: 0.64rem; padding: 0.22rem 0.5rem; gap: 0.4rem; }
 
-    .report-col { padding: 0.55rem 0.4rem; }
-    .accuracy-score { margin: 0.2rem 0 0.4rem; }
-    .est-rating { margin-bottom: 0.5rem; padding-bottom: 0.4rem; }
-    .report-row { padding: 0.2rem 0.25rem; }
+    .cls-table { padding: 0.6rem 0.6rem; }
+    .cls-label { font-size: 0.82rem; }
+    .cls-line { padding: 0.22rem 0; }
 
-    /* ✦ Start Review button on mobile */
     .start-review-btn {
       padding: 0.42rem 0.75rem;
-      font-size: 0.7a2rem;
+      font-size: 0.72rem;
       gap: 0.3rem;
     }
 
@@ -4990,7 +4861,9 @@
       flex-wrap: nowrap;
     }
 
-    .boardtools-nav { gap: 1rem; justify-content: center; }
+    .boardtools-nav { gap: 0.15rem; justify-content: center; }
+    .bt-btn { width: 2.3rem; height: 2.3rem; }
+    .bt-ghost { width: 2.1rem; height: 2.1rem; }
 
     .shortcuts-panel, .note-editor {
       width: min(92vw, 20rem);
