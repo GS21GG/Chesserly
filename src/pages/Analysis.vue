@@ -2007,7 +2007,7 @@
         class="board-wrapper"
         ref="boardRef"
         :style="{ '--last-move-highlight': lastMoveHighlightColor}"
-        @pointerup="handleBoardClick""
+        @pointerup="handleBoardClick"
       >
         <!-- TOP player bar -->
         <div class="player-bar" v-if="hasPlayerInfo">
