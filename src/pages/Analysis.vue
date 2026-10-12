@@ -181,9 +181,7 @@
   }
 
   function handleBoardClick() {
-    nextTick(() => {
-      drawBestArrow()
-    })
+    setTimeout(drawBestArrow, 50)
   }
 
   const analysisMultiPV = ref(loadStoredMultiPV())
@@ -2009,7 +2007,7 @@
         class="board-wrapper"
         ref="boardRef"
         :style="{ '--last-move-highlight': lastMoveHighlightColor}"
-        @click="handleBoardClick"
+        @pointerup="handleBoardClick""
       >
         <!-- TOP player bar -->
         <div class="player-bar" v-if="hasPlayerInfo">
@@ -3592,8 +3590,6 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
     border: none;
     border-radius: 11px;
     background: transparent;
@@ -3601,6 +3597,9 @@
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
     flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    touch-action: manipulation;
   }
 
   .bt-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
@@ -4861,13 +4860,25 @@
       flex-wrap: nowrap;
     }
 
-    .boardtools-nav { gap: 0.15rem; justify-content: center; }
-    .bt-btn { width: 2.3rem; height: 2.3rem; }
-    .bt-ghost { width: 2.1rem; height: 2.1rem; }
+    .boardtools {
+      grid-template-columns: auto 1fr auto;
+      gap: 0.5rem;
+    }
 
-    .shortcuts-panel, .note-editor {
-      width: min(92vw, 20rem);
-      padding: 1rem 1.1rem;
+    .boardtools-nav {
+      width: 100%;
+      gap: 0.2rem;
+    }
+
+    .boardtools-nav .bt-btn {
+      flex: 1;
+      width: auto;
+      height: 2.9rem;
+    }
+
+    .bt-ghost {
+      width: 2.5rem;
+      height: 2.5rem;
     }
   }
 </style>
