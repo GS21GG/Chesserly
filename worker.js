@@ -5,6 +5,7 @@ export default {
 
     const db = u.searchParams.get('db') === 'lichess' ? 'lichess' : 'masters';
     const play = u.searchParams.get('play') || '';
+    if (!env.LICHESS_TOKEN) return Response.json({ error: 'LICHESS_TOKEN missing in Worker' }, { status: 500 });
     const target = play
       ? `https://explorer.lichess.ovh/${db}?play=${encodeURIComponent(play)}`
       : `https://explorer.lichess.ovh/${db}`;
