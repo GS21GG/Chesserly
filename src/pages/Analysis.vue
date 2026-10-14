@@ -714,7 +714,12 @@
         yPct: (y / EVAL_GRAPH_H) * 100
       }
     })
-    const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')
+    const line = coords.reduce((d, c, i) => {
+      if (i === 0) return `M${c.x.toFixed(1)},${c.y.toFixed(1)}`
+      const p = coords[i - 1]
+      const mx = ((p.x + c.x) / 2).toFixed(1)
+      return `${d} C${mx},${p.y.toFixed(1)} ${mx},${c.y.toFixed(1)} ${c.x.toFixed(1)},${c.y.toFixed(1)}`
+    }, '')
     const whiteArea = `${line} L${EVAL_GRAPH_W},${EVAL_GRAPH_H} L0,${EVAL_GRAPH_H} Z`
     const blackArea = `${line} L${EVAL_GRAPH_W},0 L0,0 Z`
     const currentIdx = coords.findIndex(c => c.nodeId === currentNode.value.id)
@@ -2561,9 +2566,22 @@
                 @mouseleave="graphHoverIdx = -1"
               >
                 <svg class="eval-graph-svg" viewBox="0 0 1000 300" preserveAspectRatio="none">
-                  <path :d="evalGraphGeom.blackArea" class="eg-black" />
-                  <path :d="evalGraphGeom.whiteArea" class="eg-white" />
+                  <defs>
+                    <linearGradient id="egWhiteGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stop-color="#fbf8ef" />
+                      <stop offset="1" stop-color="#ddd8c8" />
+                    </linearGradient>
+                    <linearGradient id="egBlackGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stop-color="#1c1b18" />
+                      <stop offset="1" stop-color="#3f3d37" />
+                    </linearGradient>
+                  </defs>
+                  <path :d="evalGraphGeom.blackArea" fill="url(#egBlackGrad)" />
+                  <path :d="evalGraphGeom.whiteArea" fill="url(#egWhiteGrad)" />
+                  <line x1="0" y1="75" x2="1000" y2="75" class="eg-grid" />
+                  <line x1="0" y1="225" x2="1000" y2="225" class="eg-grid" />
                   <line x1="0" y1="150" x2="1000" y2="150" class="eg-center" />
+                  <path :d="evalGraphGeom.line" class="eg-line" fill="none" />
                 </svg>
                 <div
                   v-if="evalGraphGeom.currentIdx >= 0"
@@ -2593,7 +2611,7 @@
                   </div>
                 </template>
                 <span
-                  v-for="pt in evalGraphGeom.coords.filter(c => c.accuracy)"
+                  v-for="pt in evalGraphGeom.coords.filter(c => ['brilliant','great','inaccuracy','mistake','blunder'].includes(c.accuracy))"
                   :key="'eg-' + pt.ply"
                   class="eg-dot"
                   :class="[pt.accuracy, { current: pt.nodeId === currentNode.id }]"
@@ -4282,8 +4300,19 @@
 
   .eval-graph-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-  .eg-black { fill: #3a3833; }
-  .eg-white { fill: #f0ede6; }
+  .eg-line {
+    stroke: #a8d97a;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .eg-grid {
+    stroke: rgba(128, 126, 118, 0.3);
+    stroke-width: 1;
+    stroke-dasharray: 4 6;
+    vector-effect: non-scaling-stroke;
+  }
 
   .eg-center {
     stroke: rgba(120, 118, 110, 0.55);
@@ -4358,7 +4387,7 @@
     height: 9px;
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 1px 4px rgba(0, 0, 0, 0.4);
     cursor: pointer;
     z-index: 2;
     transition: box-shadow 0.15s ease;
@@ -4723,11 +4752,28 @@
 
     .player-bar { order: 1; padding: 0.22rem 0.55rem; margin: 0; font-size: 0.78rem; }
 
+    /* Board + thin eval bar: same row, no gap, bar is exactly the board's height */
     .board-row {
       order: 1;
-      flex-direction: column;
-      gap: 0.3rem;
+      flex-direction: row;
+      gap: 0;
+      align-items: stretch;
     }
+
+    .evalbar {
+      width: 12px;
+      height: auto;
+      flex-shrink: 0;
+    }
+
+    .evalbar-inner {
+      flex: 1;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .evalnum { display: none; }
+
+    :deep(.cg-wrap) { border-radius: 6px 0 0 6px; }
 
     .moves { order: 2; }
 
@@ -4737,30 +4783,6 @@
 
     .board-wrapper { max-width: 100%; }
 
-    .evalbar {
-      order: -1;
-      width: 100%;
-      height: 1.45rem;
-      flex-shrink: 0;
-    }
-
-    .evalbar-inner { flex-direction: row-reverse; border-radius: 8px; }
-    .evalbar.flipped .evalbar-inner { flex-direction: row-reverse; }
-
-    .blackeval, .whiteeval { height: 100%; width: auto; }
-    .blackeval { width: var(--eval, 50%); }
-    .whiteeval { width: calc(100% - var(--eval, 50%)); }
-
-    .evalnum {
-      top: 50%;
-      left: 0.4rem;
-      right: auto;
-      transform: translateY(-50%);
-      font-size: 0.7rem;
-      padding: 0.08rem 0.45rem;
-    }
-
-    .player-bar { padding: 0.22rem 0.55rem; margin: 0; font-size: 0.78rem; }
     .captured-pieces { padding-left: 0.3rem; }
     .captured-piece { font-size: 0.72rem; }
     .material-badge { font-size: 0.55rem; }
