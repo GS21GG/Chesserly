@@ -4761,19 +4761,21 @@
     }
 
     .evalbar {
-      width: 12px;
+      order: -1;
+      width: 16px;
       height: auto;
       flex-shrink: 0;
     }
 
-    .evalbar-inner {
-      flex: 1;
-      border-radius: 0 6px 6px 0;
-    }
+   .evalbar-inner {
+    flex: 1;
+    border-radius: 6px 0 0 6px;
+  }
+
 
     .evalnum { display: none; }
 
-    :deep(.cg-wrap) { border-radius: 6px 0 0 6px; }
+    :deep(.cg-wrap) { border-radius: 0 6px 6px 0; }
 
     .moves { order: 2; }
 
