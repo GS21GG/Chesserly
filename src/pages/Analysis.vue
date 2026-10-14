@@ -161,17 +161,27 @@
   }
   const showBestArrow = ref(loadStoredBestArrowSetting())
 
+  // ===== BEST MOVE ARROW (green, for any move that was not the best) =====
+  const NOT_BEST = ['good', 'excellent', 'inaccuracy', 'mistake', 'blunder']
+  const CASTLE_FIX = { e1h1: 'e1g1', e1a1: 'e1c1', e8h8: 'e8g8', e8a8: 'e8c8' }
+
+  // Reads straight from the current node, and clears old arrows first.
+  // So it is safe to call it at any time.
+  function drawBestArrow() {
+    if (!boardAPI.value) return
+    boardAPI.value.hideMoves()
+    if (!showBestArrow.value) return
+    const node = currentNode.value
+    const data = node.analysisData
+    if (!node.san || !data?.best_move || !NOT_BEST.includes(data.move_accuracy)) return
+    const best = CASTLE_FIX[data.best_move] ?? data.best_move
+    boardAPI.value.drawMove(best.slice(0, 2), best.slice(2, 4), 'green')
+  }
+
   watch(showBestArrow, (enabled) => {
     localStorage.setItem(BEST_ARROW_STORAGE_KEY, String(enabled))
-    if (!boardAPI.value) return
-    if (!enabled) {
-      boardAPI.value.hideMoves()
-    } else {
-      drawBestArrow()
-    }
+    drawBestArrow()
   })
-
-
 
   function loadStoredMultiPV() {
     const stored = Number(localStorage.getItem('chesslab_multiPV'))
@@ -297,7 +307,7 @@
       explorerMoves.value = []
       explorerError.value = ""
       explorerLoading.value = false
-      
+
       restoreScroll()
       return
     }
@@ -317,7 +327,7 @@
         openingEco.value = ""
       }
       explorerLoading.value = false
-      
+
       restoreScroll()
       return
     }
@@ -407,7 +417,7 @@
       explorerMoves.value = []
     } finally {
       explorerLoading.value = false
-      
+
       // Restore scroll after loading finishes (covers success, errors, and 204s)
       restoreScroll()
     }
@@ -587,11 +597,6 @@
     }
   }
 
-  watch(showBestArrow, (val) => {
-    if (!val && boardAPI.value) boardAPI.value.hideMoves()
-    else drawBestArrow()
-  })
-
   watch(currentNode, () => { if (activeTab.value === 'explorer') importLichessExplorer() }, { immediate: true })
   watch(activeTab, (newTab) => { if (newTab === 'explorer') importLichessExplorer() })
   watch(explorerDb, () => { importLichessExplorer() })
@@ -608,12 +613,6 @@
   }
   function copyPGN() { copyToClipboard(chess.pgn() || '(no moves yet)', 'PGN') }
   function copyFEN() { copyToClipboard(chess.fen(), 'FEN') }
-
-  function drawBestArrow() {
-    if (!showBestArrow.value || !boardAPI.value || !bestArrowSquares.value) return
-    const { from, to } = bestArrowSquares.value
-    boardAPI.value.drawMove(from, to, 'blue')
-  }
 
   async function onBoardCreated(api) {
     boardAPI.value = api
@@ -945,6 +944,7 @@
     moveTree.fen = chess.fen()
     nodeIdCounter = 1
     for (const key in nodeMap) if (parseInt(key) !== 0) delete nodeMap[key]
+    bestVariation.value = null
     treeVersion.value++
     capturedByWhite.value = []
     capturedByBlack.value = []
@@ -969,7 +969,6 @@
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
       isAnalyzing.value = false
-      if (showBestArrow.value && boardAPI.value) boardAPI.value.hideMoves()
       evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
       return
     }
@@ -978,6 +977,7 @@
       isAccuracy.value = " "
       color.value = " "
       isAnalyzing.value = false
+      drawBestArrow()
       return
     }
     if (cached && cached.depth >= depthNeeded && hasRequiredMultiPV) {
@@ -987,7 +987,6 @@
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
       isAnalyzing.value = false
-      if (showBestArrow.value && boardAPI.value) boardAPI.value.hideMoves()
       evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
       return
     }
@@ -1001,7 +1000,7 @@
     }
     isAnalyzing.value = true
     bestArrowSquares.value = null
-    if (showBestArrow.value && boardAPI.value) boardAPI.value.hideMoves()
+    drawBestArrow()
     const beforeFen = currentNode.value.parent ? currentNode.value.parent.fen : moveTree.fen
     const afterFen = currentNode.value.fen
     const depthToUse = isImporting.value
@@ -1222,6 +1221,53 @@
     requestAnalysisForNewMove()
   }
 
+  // ===== PLAY BEST MOVE INSTEAD (lightbulb / trash button) ================
+  const bestVariation = ref(null) // { nodeId, returnId }
+
+  const canPlayBest = computed(() => {
+    moveData.value // re-run when analysis updates
+    const n = currentNode.value
+    const d = n.analysisData
+    return !!(n.san && d?.best_move && NOT_BEST.includes(d.move_accuracy))
+  })
+
+  const inBestVariation = computed(() => {
+    treeVersion.value
+    if (!bestVariation.value) return false
+    let n = currentNode.value
+    while (n) {
+      if (n.id === bestVariation.value.nodeId) return true
+      n = n.parent
+    }
+    return false
+  })
+
+  function playBestInstead() {
+    if (isImporting.value || !canPlayBest.value) return
+    const badNode = currentNode.value
+    const parent = badNode.parent
+    const best = badNode.analysisData.best_move
+    const countBefore = parent.children.length
+    undoMove()
+    const result = applyUciMove(best)
+    if (!result) return
+    soundForLastMove(result)
+    boardAPI.value.setPosition(chess.fen())
+    // only remember it if we made a new line (don't delete the user's old lines)
+    if (parent.children.length > countBefore) {
+      bestVariation.value = { nodeId: currentNode.value.id, returnId: badNode.id }
+    }
+    requestAnalysisForNewMove()
+  }
+
+  function removeBestVariation() {
+    const v = bestVariation.value
+    if (!v) return
+    bestVariation.value = null
+    if (nodeMap[v.nodeId]) deleteMove(v.nodeId)
+    jumpToNode(v.returnId)
+  }
+
   const handleKeyDown = (event) => {
     const delay = 200
     const currentTime = Date.now()
@@ -1326,7 +1372,7 @@
         goToStart()
         treeVersion.value++
         await saveGameInsights()
-        // ✦ NEW: open the maximized report with blurred background
+        // open the maximized report with blurred background
         isReportMaximized.value = true
         activeTab.value = 'report'
       }
@@ -2097,15 +2143,26 @@
         <div class="boardtools">
           <div class="boardtools-left">
             <button
+              v-if="!inBestVariation"
               class="bt-btn bt-ghost"
-              @click="toggleShortcuts"
-              title="Keyboard shortcuts (?)"
-              aria-label="Keyboard shortcuts"
+              @click="playBestInstead"
+              :disabled="isImporting || !canPlayBest"
+              title="Play the best move instead"
+              aria-label="Play the best move instead"
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7" />
-                <path d="M12 17h.01" />
+                <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />
+              </svg>
+            </button>
+            <button
+              v-else
+              class="bt-btn bt-ghost"
+              @click="removeBestVariation"
+              title="Delete this line and go back"
+              aria-label="Delete this line and go back"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
               </svg>
             </button>
           </div>
