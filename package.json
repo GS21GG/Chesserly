@@ -12,6 +12,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
     "chess.js": "^1.4.0",
     "chessboardjs": "^0.0.1",
     "chessground": "^9.2.1",

@@ -1068,12 +1068,64 @@
 
   function flipBoard() { boardAPI.value.toggleOrientation(); rotate.value += 180 }
 
-  function accuracySymbol(acc) {
-    const map = {
-      brilliant: 'brilliant', best: 'best', excellent: 'excellent', good: 'good',
-      inaccuracy: 'inaccuracy', mistake: 'mistake', blunder: 'blunder', great: 'great', book: 'book'
-    }
-    return map[acc] ? `/moveClassifications/${map[acc]}.png` : undefined
+  // MOVE ICONS (inline SVG, colors come from accuracyColors) 
+  const ICON_STROKE = 'fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"'
+  const ICON_Q = `<path d="M23 24C23 17 28 14 32 14C37 14 41 17 41 22C41 27 36 29 33 32C32 33 32 35 32 37" ${ICON_STROKE}/><circle cx="32" cy="46" r="3.5" fill="#fff"/>`
+  const iconEx = (x) => `<rect x="${x - 3.5}" y="13" width="7" height="24" rx="3.5" fill="#fff"/><circle cx="${x}" cy="47" r="4" fill="#fff"/>`
+
+  const ICON_BODY = {
+    brilliant: iconEx(22) + iconEx(42),
+    great: iconEx(32),
+    best: '<polygon points="32,18 36.1,28.3 47.2,29.1 38.7,36.2 41.4,46.9 32,41 22.6,46.9 25.3,36.2 16.8,29.1 27.9,28.3" fill="#fff" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>',
+    excellent: '<rect x="14" y="28" width="9" height="20" rx="2" fill="#fff"/><path d="M26 29L33 14Q35 11 38 13Q40 15 39 18L37 25H48Q52 25 52 29Q52 31 51 32Q52 34 51 36Q52 38 50 40Q50 43 47 44L47 46H29Q26 46 26 44Z" fill="#fff"/>',
+    good: `<path d="M19 33L28 42L46 22" ${ICON_STROKE}/>`,
+    book: '<path d="M14 21Q23 19 31 24V47Q23 42 14 44Z" fill="#fff"/><path d="M50 21Q41 19 33 24V47Q41 42 50 44Z" fill="#fff"/>',
+    inaccuracy: `<g transform="translate(1.6 10.6) scale(.7)">${ICON_Q}</g><rect x="41.5" y="14" width="7" height="22" rx="3.5" fill="#fff"/><circle cx="45" cy="46" r="4" fill="#fff"/>`,
+    mistake: ICON_Q,
+    blunder: `<g transform="translate(1.7 11.4) scale(.68)">${ICON_Q}</g><g transform="translate(18.7 11.4) scale(.68)">${ICON_Q}</g>`
+  }
+
+  function shade(hex, amt) { // -1 darker ... 1 lighter
+    const n = parseInt(hex.slice(1), 16)
+    const f = c => Math.round(amt < 0 ? c * (1 + amt) : c + (255 - c) * amt)
+    return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`
+  }
+
+  const GLOW_ICONS = ['brilliant', 'great', 'best']
+
+    function accuracySymbol(acc) {
+    const body = ICON_BODY[acc]
+    if (!body) return undefined
+    const c = accuracyColors[acc]
+    const hasGlow = GLOW_ICONS.includes(acc)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 72 72">
+      <defs>
+        <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${shade(c, 0.5)}"/>
+          <stop offset="1" stop-color="${shade(c, -0.45)}"/>
+        </linearGradient>
+        <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${shade(c, 0.22)}"/>
+          <stop offset="1" stop-color="${shade(c, -0.3)}"/>
+        </linearGradient>
+        <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#fff" stop-opacity=".5"/>
+          <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </linearGradient>
+        <filter id="sym" x="-20%" y="-20%" width="140%" height="150%">
+          <feDropShadow dx="0" dy="1.8" stdDeviation="1.3" flood-color="#000" flood-opacity=".4"/>
+        </filter>
+        ${hasGlow ? `<filter id="glow" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="${c}" flood-opacity=".75"/></filter>` : ''}
+      </defs>
+      <g ${hasGlow ? 'filter="url(#glow)"' : ''}>
+        <circle cx="32" cy="32" r="30" fill="url(#rim)"/>
+        <circle cx="32" cy="32" r="25.5" fill="url(#face)"/>
+        <circle cx="32" cy="32" r="25.5" fill="none" stroke="${shade(c, -0.5)}" stroke-opacity=".6" stroke-width="1"/>
+        <path d="M10 28C10 15 20 8 32 8C44 8 54 15 54 28C46 21 18 21 10 28Z" fill="url(#shine)"/>
+      </g>
+      <g filter="url(#sym)">${body}</g>
+    </svg>`
+    return 'data:image/svg+xml,' + encodeURIComponent(svg)
   }
 
   function accuracyToClass(acc) {
@@ -3628,7 +3680,7 @@
     letter-spacing: 0.2px;
   }
 
-  .acc-badge { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
+  .acc-badge { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
   .note-indicator { font-size: 0.62rem; opacity: 0.7; cursor: help; flex-shrink: 0; }
 
   /* ===== BOARD TOOLS ======================================================= */
@@ -3810,8 +3862,8 @@
 
   .board-acc-icon {
     position: absolute;
-    width: 4.5%;
-    height: 4.5%;
+    width: 5.5%;
+    height: 5.5%;
     border-radius: 50%;
     pointer-events: none;
   }
@@ -4716,7 +4768,7 @@
   /* ===== MOBILE: STICKY TITLE + MINIMAL SCROLL ============================= */
   @media (max-width: 767px) {
     .acc-badge { width: 19px; height: 19px; }
-    .board-acc-icon { width: 5.2%; height: 5.2%; }
+    .board-acc-icon { width: 5.8%; height: 5.8%; }
 
     .grid-layout {
       display: flex;

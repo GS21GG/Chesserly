@@ -51,45 +51,63 @@
     </button>
     <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
     <nav class="title-nav">
-      <button
-        class="btn"
-        :style="{ background: `linear-gradient(${bgColor('import')})` }"
-        @click="importClick()"
-      >
-        🎮 GameImport
-      </button>
-      <button
-        class="btn"
-        :style="{ background: `linear-gradient(${bgColor('analyze')})` }"
-        @click="analyzeClick()"
-      >
-        🔎 Analyse
-      </button>
-      <button
-        class="btn"
-        :style="{ background: `linear-gradient(${bgColor('insight')})` }"
-        @click="insightsClick()"
-      >
-        📊 Insights
-      </button>
-      <button
-        class="btn tooltip-btn"
-        :style="{ background: `linear-gradient(${bgColor('computer')})` }"
-        @click="gameClick()"
-        disabled
-        data-tooltip="Coming soon..."
-      >
-        🤖 VS Computer
-      </button>
-      <button
-        class="btn tooltip-btn"
-        :style="{ background: `linear-gradient(${bgColor('puzzles')})` }"
-        @click="puzzlesClick()"
-        disabled
-        data-tooltip="Coming soon..."
-      >
-        🧩 Puzzles
-      </button>
+      <button class="btn" :style="{ background: `linear-gradient(${bgColor('import')})` }" @click="importClick()">
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="7 10 12 15 17 10"/>
+    <line x1="12" x2="12" y1="15" y2="3"/>
+  </svg>
+  GameImport
+  </button>
+
+  <button class="btn" :style="{ background: `linear-gradient(${bgColor('analyze')})` }" @click="analyzeClick()">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"/>
+      <path d="m21 21-4.3-4.3"/>
+    </svg>
+    Analyse
+  </button>
+
+  <button class="btn" :style="{ background: `linear-gradient(${bgColor('insight')})` }" @click="insightsClick()">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 3v16a2 2 0 0 0 2 2h16"/>
+      <path d="M18 17V9"/>
+      <path d="M13 17V5"/>
+      <path d="M8 17v-3"/>
+    </svg>
+    Insights
+  </button>
+
+  <button
+    class="btn tooltip-btn"
+    :style="{ background: `linear-gradient(${bgColor('computer')})` }"
+    @click="gameClick()"
+    disabled
+    data-tooltip="Coming soon..."
+  >
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 8V4H8"/>
+      <rect width="16" height="12" x="4" y="8" rx="2"/>
+      <path d="M2 14h2"/>
+      <path d="M20 14h2"/>
+      <path d="M15 13v2"/>
+      <path d="M9 13v2"/>
+    </svg>
+    VS Computer
+  </button>
+
+  <button
+    class="btn tooltip-btn"
+    :style="{ background: `linear-gradient(${bgColor('puzzles')})` }"
+    @click="puzzlesClick()"
+    disabled
+    data-tooltip="Coming soon..."
+  >
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>
+    </svg>
+    Puzzles
+  </button>
     </nav>
   </div>
 </template>
@@ -146,6 +164,16 @@
 
   .btn {
     box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  .icon {
+    width: 1.15em;
+    height: 1.15em;
+    flex-shrink: 0;
   }
 
   button:hover:not(:disabled) {

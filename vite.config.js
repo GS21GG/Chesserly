@@ -20,6 +20,10 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp'
     },
     proxy: {
+      '/api/explorer': {
+        target: 'https://chesserly.blitzo.workers.dev',
+        changeOrigin: true,
+      },
       '/assets/core-utils.js': {
         target: 'https://cloud.umami.is',
         changeOrigin: true,
