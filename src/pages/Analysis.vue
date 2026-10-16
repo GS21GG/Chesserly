@@ -161,37 +161,127 @@
   }
   const showBestArrow = ref(loadStoredBestArrowSetting())
 
-  // ===== BEST MOVE ARROW (green, for any move that was not the best) =====
+  // ===== BEST MOVE ARROW ====================================================
+  // Drawn as our own SVG overlay (see template), completely separate from
+  // chessground's shapes. That way it is always visible and never touches
+  // (or clears) the arrows the user draws with right-click.
   const NOT_BEST = ['good', 'excellent', 'inaccuracy', 'mistake', 'blunder']
   const CASTLE_FIX = { e1h1: 'e1g1', e1a1: 'e1c1', e8h8: 'e8g8', e8a8: 'e8c8' }
 
-  // Reads straight from the current node, and clears old arrows first.
-  // So it is safe to call it at any time.
-  function drawBestArrow() {
-    if (!boardAPI.value) return
-    boardAPI.value.hideMoves()
-    if (!showBestArrow.value) return
+  const bestArrow = computed(() => {
+    if (!showBestArrow.value) return null
+    moveData.value // re-run whenever analysis updates
     const node = currentNode.value
     const data = node.analysisData
-    if (!node.san || !data?.best_move || !NOT_BEST.includes(data.move_accuracy)) return
-    const best = CASTLE_FIX[data.best_move] ?? data.best_move
-    boardAPI.value.drawMove(best.slice(0, 2), best.slice(2, 4), 'green')
-  }
+    if (!node.san || !data?.best_move || !NOT_BEST.includes(data.move_accuracy)) return null
+    const uci = CASTLE_FIX[data.best_move] ?? data.best_move
+    if (uci.length < 4) return null
+    const flipped = isFlipped.value
+    const center = (sq) => {
+      const file = sq.charCodeAt(0) - 97
+      const rank = parseInt(sq[1]) - 1
+      return {
+        x: (flipped ? 7 - file : file) + 0.5,
+        y: (flipped ? rank : 7 - rank) + 0.5
+      }
+    }
+    const from = center(uci.slice(0, 2))
+    const to = center(uci.slice(2, 4))
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    const len = Math.hypot(dx, dy)
+    if (!len) return null
+    const ux = dx / len
+    const uy = dy / len
+    const headLen = 0.5
+    const headHalf = 0.3
+    const startGap = 0.18
+    const bx = to.x - ux * headLen
+    const by = to.y - uy * headLen
+    const px = -uy
+    const py = ux
+    return {
+      x1: from.x + ux * startGap,
+      y1: from.y + uy * startGap,
+      x2: bx,
+      y2: by,
+      head: [
+        `${to.x},${to.y}`,
+        `${bx + px * headHalf},${by + py * headHalf}`,
+        `${bx - px * headHalf},${by - py * headHalf}`
+      ].join(' ')
+    }
+  })
 
   watch(showBestArrow, (enabled) => {
     localStorage.setItem(BEST_ARROW_STORAGE_KEY, String(enabled))
-    drawBestArrow()
   })
+
+  const panelTabs = [
+    { id: 'moves', label: 'Moves' },
+    { id: 'report', label: 'Report' },
+    { id: 'explorer', label: 'Explorer' }
+  ]
+
+  const activeTabIndex = computed(() =>
+    panelTabs.findIndex(t => t.id === activeTab.value)
+  )
+
+  function cycleTab(direction) {
+    const currentIndex = activeTabIndex.value
+    if (currentIndex === -1) return
+
+    const nextIndex =
+      (currentIndex + direction + panelTabs.length) % panelTabs.length
+
+    activeTab.value = panelTabs[nextIndex].id
+  }
+
+  let tabSwipeStart = null
+
+  function onTabSwipeStart(event) {
+    if (isImporting.value) {
+      tabSwipeStart = null
+      return
+    }
+
+    // Avoid interfering with buttons, scrollable analysis lines, etc.
+    if (event.target.closest('button, input, textarea, .pretty-scroll')) {
+      tabSwipeStart = null
+      return
+    }
+
+    const touch = event.touches[0]
+    tabSwipeStart = {
+      x: touch.clientX,
+      y: touch.clientY
+    }
+  }
+
+  function onTabSwipeEnd(event) {
+    if (!tabSwipeStart || isImporting.value) return
+
+    const touch = event.changedTouches[0]
+    const dx = touch.clientX - tabSwipeStart.x
+    const dy = touch.clientY - tabSwipeStart.y
+
+    tabSwipeStart = null
+
+    const isHorizontalSwipe =
+      Math.abs(dx) > 58 &&
+      Math.abs(dy) < 42
+
+    if (!isHorizontalSwipe) return
+
+    // Swipe left = next tab, swipe right = previous tab
+    cycleTab(dx < 0 ? 1 : -1)
+  }
 
   function loadStoredMultiPV() {
     const stored = Number(localStorage.getItem('chesslab_multiPV'))
     if (stored >= 1 && stored <= 3) return stored
     localStorage.setItem('chesslab_multiPV', '1')
     return 1
-  }
-
-  function handleBoardClick() {
-    setTimeout(drawBestArrow, 50)
   }
 
   const analysisMultiPV = ref(loadStoredMultiPV())
@@ -769,10 +859,9 @@
     if (!container || !list) return
     const active = list.querySelector('.move-cell.active')
     if (!active) return
-    const tabsHeight = container.querySelector('.tabs-toggle')?.offsetHeight || 0
     const cRect = container.getBoundingClientRect()
     const aRect = active.getBoundingClientRect()
-    const topLimit = cRect.top + tabsHeight + 6
+    const topLimit = cRect.top + 6
     const bottomLimit = cRect.bottom - 6
     let delta = 0
     if (aRect.top < topLimit) delta = aRect.top - topLimit
@@ -974,7 +1063,7 @@
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
       isAnalyzing.value = false
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
       return
     }
     if (!isImporting.value && !isEngineEnabled.value && !cached) {
@@ -982,7 +1071,6 @@
       isAccuracy.value = " "
       color.value = " "
       isAnalyzing.value = false
-      drawBestArrow()
       return
     }
     if (cached && cached.depth >= depthNeeded && hasRequiredMultiPV) {
@@ -992,7 +1080,7 @@
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
       isAnalyzing.value = false
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
       return
     }
     if (cached && !hasRequiredMultiPV) {
@@ -1001,11 +1089,10 @@
       lastMoveFromSquare.value = movesListUCI.value.at(-1)?.slice(0, 2) ?? null
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
     }
     isAnalyzing.value = true
     bestArrowSquares.value = null
-    drawBestArrow()
     const beforeFen = currentNode.value.parent ? currentNode.value.parent.fen : moveTree.fen
     const afterFen = currentNode.value.fen
     const depthToUse = isImporting.value
@@ -1025,7 +1112,7 @@
         currentNode.value.analysisData = result
         currentDepth.value = result.depth
         isAnalyzing.value = result.depth < depthToUse
-        evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+        evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
         if (!isImporting.value) treeVersion.value++
       },
       beforeFen, afterFen, moveTree.fen,
@@ -2110,7 +2197,6 @@
         class="board-wrapper"
         ref="boardRef"
         :style="{ '--last-move-highlight': lastMoveHighlightColor}"
-        @pointerup="handleBoardClick"
       >
         <!-- TOP player bar -->
         <div class="player-bar" v-if="hasPlayerInfo">
@@ -2148,6 +2234,23 @@
               @board-created="onBoardCreated"
               :board-config="{ coordinates: true, animation: { enabled: true, duration: 100 } }"
             />
+            <!-- Best-move arrow: own overlay, never interferes with user-drawn arrows -->
+            <svg
+              v-if="bestArrow"
+              class="best-arrow-overlay"
+              viewBox="0 0 8 8"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <line
+                :x1="bestArrow.x1"
+                :y1="bestArrow.y1"
+                :x2="bestArrow.x2"
+                :y2="bestArrow.y2"
+                class="best-arrow-line"
+              />
+              <polygon :points="bestArrow.head" class="best-arrow-head" />
+            </svg>
             <img
               v-if="lastMoveSquare && lastMoveAccuracy"
               :src="accuracySymbol(lastMoveAccuracy)"
@@ -2441,413 +2544,431 @@
         </div>
       </div>
 
-      <div class="moves" ref="movesScrollRef">
-        <div class="tabs-toggle">
+      <div
+        class="moves"
+        @touchstart.passive="onTabSwipeStart"
+        @touchend.passive="onTabSwipeEnd"
+      >
+        <!-- Vertical icon rail: uses zero vertical space -->
+        <nav class="tab-rail" role="tablist" aria-label="Panel tabs" :style="{ '--i': activeTabIndex }">
+          <span class="tab-rail-indicator" aria-hidden="true"></span>
           <button
-            :class="{ active: activeTab === 'moves' }"
-            @click="activeTab = 'moves'"
+            v-for="tab in panelTabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            class="rail-btn"
+            :class="{ on: tab.id === activeTab }"
+            :aria-selected="tab.id === activeTab"
+            :title="tab.label"
+            :aria-label="tab.label"
+            @click="activeTab = tab.id"
           >
-            Moves
+            <!-- moves -->
+            <svg v-if="tab.id === 'moves'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 6h11M9 12h11M9 18h11" />
+              <circle cx="4.5" cy="6" r="1" fill="currentColor" />
+              <circle cx="4.5" cy="12" r="1" fill="currentColor" />
+              <circle cx="4.5" cy="18" r="1" fill="currentColor" />
+            </svg>
+            <!-- report -->
+            <svg v-else-if="tab.id === 'report'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 20V11M12 20V4M19 20v-6" />
+            </svg>
+            <!-- explorer -->
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z" />
+            </svg>
           </button>
-          <button
-            :class="{ active: activeTab === 'report' }"
-            @click="activeTab = 'report'"
-          >
-            Report
-          </button>
-          <button
-            :class="{ active: activeTab === 'explorer' }"
-            @click="activeTab = 'explorer'"
-          >
-            Explorer
-          </button>
-        </div>
+        </nav>
 
-        <div class="moveslist" v-if="activeTab === 'moves'" ref="movesListRef">
-          <template v-for="row in renderedMoves" :key="row.key">
-            <div
-              class="move-row"
-              :class="{ variant: row.depth > 0 }"
-              :style="{ '--indent': `${row.depth * 1.05}rem` }"
-            >
+        <div class="moves-body" ref="movesScrollRef">
+          <div class="moveslist" v-if="activeTab === 'moves'" ref="movesListRef">
+            <template v-for="row in renderedMoves" :key="row.key">
               <div
-                v-for="(cell, index) in row.cells"
-                :key="cell ? cell.key : `${row.key}-empty-${index}`"
-                class="move-cell"
-                :class="[{ active: cell && cell.node === currentNode, variant: cell && cell.variant }, { empty: !cell }]"
-                @click="cell && handleCellClick(cell.node.id)"
-                @dblclick="cell && openNoteEditor(cell.node.id)"
-                @contextmenu.prevent="cell && openContextMenu($event, cell.node.id)"
-                @touchstart="cell && handleTouchStart($event, cell.node.id)"
-                @touchend="cancelLongPress"
-                @touchmove="cancelLongPress"
+                class="move-row"
+                :class="{ variant: row.depth > 0 }"
+                :style="{ '--indent': `${row.depth * 1.05}rem` }"
               >
-                <template v-if="cell">
-                  <span v-if="cell.showNum" class="move-num"
-                    >{{ cell.displayNum }}{{ cell.isWhite ? '.' : '...' }}</span
-                  >
-                  <span class="move-san-text">{{ prettyMove(cell.node.san) }}</span>
-                  <span
-                    v-if="cell.node.note"
-                    class="note-indicator"
-                    title="Has note"
-                    >📝</span
-                  >
-                  <img
-                    v-if="cell.node.accuracy"
-                    :src="accuracySymbol(cell.node.accuracy)"
-                    class="acc-badge"
-                    :class="cell.node.accuracy"
-                  />
-                </template>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <!-- ============ REPORT (teleported to body when maximized) ============ -->
-        <Teleport
-          to="body"
-          :disabled="!isReportMaximized"
-          v-else-if="activeTab === 'report'"
-        >
-          <div class="report" :class="{ maximized: isReportMaximized }">
-            <div class="report-header">
-              <h3 class="report-title">Game Report</h3>
-              <div class="report-header-actions">
-                <button
-                  v-if="isReportMaximized"
-                  class="start-review-btn"
-                  @click="startReview"
-                  title="Close report and browse moves"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="16"
-                    height="16"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.4"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                  Start Review
-                </button>
-                <button
-                  class="report-expand-btn"
-                  @click="toggleReportMaximize"
-                  :title="isReportMaximized ? 'Minimize report (Esc)' : 'Maximize report'"
-                >
-                  <svg
-                    v-if="!isReportMaximized"
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                  </svg>
-                  <svg
-                    v-else
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <!-- Score boxes -->
-            <div class="score-row">
-              <div v-for="side in ['white', 'black']" :key="side" class="score-box" :class="side">
-                <span class="score-num">
-                  {{ gameReportStats[side].accuracy !== null ? gameReportStats[side].accuracy.toFixed(1) + '%' : '—' }}
-                </span>
-                <span class="score-rating">{{ estimatedRatings[side] ?? '—' }}</span>
-              </div>
-            </div>
-
-            <!-- Move table -->
-            <div class="cls-table">
-              <div class="cls-head">
-                <span></span>
-                <span class="cls-name">{{ whiteName }}</span>
-                <span></span>
-                <span class="cls-name">{{ blackName }}</span>
-              </div>
-
-              <div v-for="key in classificationOrder" :key="key" class="cls-line">
-                <span class="cls-label" :style="{ color: classificationMeta[key].color }">
-                  {{ classificationMeta[key].label }}
-                </span>
-                <span
-                  class="cls-num"
-                  :class="{ dim: gameReportStats.white.counts[key] === 0 }"
-                  :style="{ color: classificationMeta[key].color }"
-                  @click="jumpToClassification('white', key)"
-                >{{ gameReportStats.white.counts[key] }}</span>
-                <img :src="accuracySymbol(key)" class="cls-icon" />
-                <span
-                  class="cls-num"
-                  :class="{ dim: gameReportStats.black.counts[key] === 0 }"
-                  :style="{ color: classificationMeta[key].color }"
-                  @click="jumpToClassification('black', key)"
-                >{{ gameReportStats.black.counts[key] }}</span>
-              </div>
-            </div>
-
-            <!-- Eval graph -->
-            <div class="eval-graph-card" v-if="evalGraphGeom">
-              <div
-                class="eval-graph-area"
-                @click="evalGraphClick"
-                @mousemove="evalGraphHover"
-                @mouseleave="graphHoverIdx = -1"
-              >
-                <svg class="eval-graph-svg" viewBox="0 0 1000 300" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="egWhiteGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0" stop-color="#fbf8ef" />
-                      <stop offset="1" stop-color="#ddd8c8" />
-                    </linearGradient>
-                    <linearGradient id="egBlackGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0" stop-color="#1c1b18" />
-                      <stop offset="1" stop-color="#3f3d37" />
-                    </linearGradient>
-                  </defs>
-                  <path :d="evalGraphGeom.blackArea" fill="url(#egBlackGrad)" />
-                  <path :d="evalGraphGeom.whiteArea" fill="url(#egWhiteGrad)" />
-                  <line x1="0" y1="75" x2="1000" y2="75" class="eg-grid" />
-                  <line x1="0" y1="225" x2="1000" y2="225" class="eg-grid" />
-                  <line x1="0" y1="150" x2="1000" y2="150" class="eg-center" />
-                  <path :d="evalGraphGeom.line" class="eg-line" fill="none" />
-                </svg>
                 <div
-                  v-if="evalGraphGeom.currentIdx >= 0"
-                  class="eg-current"
-                  :style="{ left: evalGraphGeom.coords[evalGraphGeom.currentIdx].xPct + '%' }"
-                ></div>
-                <template v-if="graphHoverData">
-                  <div class="eg-hover-line" :style="{ left: graphHoverData.pt.xPct + '%' }"></div>
-                  <div
-                    class="eg-hover-dot"
-                    :class="graphHoverData.pt.accuracy || 'plain'"
-                    :style="{ left: graphHoverData.pt.xPct + '%', top: graphHoverData.pt.yPct + '%' }"
-                  ></div>
-                  <div
-                    class="eg-tooltip"
-                    :class="{ below: graphHoverData.below }"
-                    :style="{ left: graphHoverData.leftPct + '%' }"
-                  >
-                    <span class="eg-tooltip-move">{{ graphHoverData.label }}{{ graphHoverData.san ? ' ' + graphHoverData.san : '' }}</span>
-                    <span class="eg-tooltip-eval">{{ graphHoverData.evalText }}</span>
-                    <span
-                      v-if="graphHoverData.accLabel"
-                      class="eg-tooltip-acc"
-                      :style="{ color: graphHoverData.accColor }"
-                      >{{ graphHoverData.accLabel }}</span
+                  v-for="(cell, index) in row.cells"
+                  :key="cell ? cell.key : `${row.key}-empty-${index}`"
+                  class="move-cell"
+                  :class="[{ active: cell && cell.node === currentNode, variant: cell && cell.variant }, { empty: !cell }]"
+                  @click="cell && handleCellClick(cell.node.id)"
+                  @dblclick="cell && openNoteEditor(cell.node.id)"
+                  @contextmenu.prevent="cell && openContextMenu($event, cell.node.id)"
+                  @touchstart="cell && handleTouchStart($event, cell.node.id)"
+                  @touchend="cancelLongPress"
+                  @touchmove="cancelLongPress"
+                >
+                  <template v-if="cell">
+                    <span v-if="cell.showNum" class="move-num"
+                      >{{ cell.displayNum }}{{ cell.isWhite ? '.' : '...' }}</span
                     >
-                  </div>
-                </template>
-                <span
-                  v-for="pt in evalGraphGeom.coords.filter(c => ['brilliant','great','inaccuracy','mistake','blunder'].includes(c.accuracy))"
-                  :key="'eg-' + pt.ply"
-                  class="eg-dot"
-                  :class="[pt.accuracy, { current: pt.nodeId === currentNode.id }]"
-                  :style="{ left: pt.xPct + '%', top: pt.yPct + '%' }"
-                  @click.stop="jumpToNode(pt.nodeId)"
-                ></span>
-              </div>
-            </div>
-
-            <!-- ===== MAXIMIZED-ONLY CARDS ===== -->
-            <template v-if="isReportMaximized">
-              <div class="report-max-grid">
-
-                <!-- Accuracy by Phase -->
-                <div class="report-card" v-if="gameExtendedStats">
-                  <div class="rc-head">
-                    <h4 class="rc-title">Accuracy by Phase</h4>
-                    <div class="rc-legend">
-                      <span class="rc-legend-item"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
-                      <span class="rc-legend-item"><span class="side-swatch black-swatch"></span>{{ blackName }}</span>
-                    </div>
-                  </div>
-                  <div class="phase-list">
-                    <div v-for="phase in ['opening', 'middlegame', 'endgame']" :key="phase" class="phase-item">
-                      <span class="phase-name">{{ phase }}</span>
-                      <div class="phase-line">
-                        <span class="side-swatch white-swatch"></span>
-                        <div class="phase-bar">
-                          <div :style="{ width: (gameExtendedStats.white.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.white.phases[phase]) }"></div>
-                        </div>
-                        <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.white.phases[phase]) }">{{ fmtAcc(gameExtendedStats.white.phases[phase]) }}</span>
-                      </div>
-                      <div class="phase-line">
-                        <span class="side-swatch black-swatch"></span>
-                        <div class="phase-bar">
-                          <div :style="{ width: (gameExtendedStats.black.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.black.phases[phase]) }"></div>
-                        </div>
-                        <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.black.phases[phase]) }">{{ fmtAcc(gameExtendedStats.black.phases[phase]) }}</span>
-                      </div>
-                    </div>
-                  </div>
+                    <span class="move-san-text">{{ prettyMove(cell.node.san) }}</span>
+                    <span
+                      v-if="cell.node.note"
+                      class="note-indicator"
+                      title="Has note"
+                      >📝</span
+                    >
+                    <img
+                      v-if="cell.node.accuracy"
+                      :src="accuracySymbol(cell.node.accuracy)"
+                      class="acc-badge"
+                      :class="cell.node.accuracy"
+                    />
+                  </template>
                 </div>
-
-                <!-- Game Stats -->
-                <div class="report-card" v-if="gameExtendedStats">
-                  <div class="rc-head">
-                    <h4 class="rc-title">Game Stats</h4>
-                  </div>
-                  <div class="stat-table">
-                    <div class="stat-row stat-head">
-                      <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
-                      <span></span>
-                      <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
-                    </div>
-                    <div class="stat-row">
-                      <span class="stat-val">{{ gameExtendedStats.white.checks }}</span>
-                      <span class="stat-label">Checks</span>
-                      <span class="stat-val right">{{ gameExtendedStats.black.checks }}</span>
-                    </div>
-                    <div class="stat-row">
-                      <span class="stat-val">{{ gameExtendedStats.white.captures }}</span>
-                      <span class="stat-label">Captures</span>
-                      <span class="stat-val right">{{ gameExtendedStats.black.captures }}</span>
-                    </div>
-                    <div class="stat-row">
-                      <span class="stat-val">{{ gameExtendedStats.white.cpLost }}</span>
-                      <span class="stat-label">Pawns lost</span>
-                      <span class="stat-val right">{{ gameExtendedStats.black.cpLost }}</span>
-                    </div>
-                    <div class="stat-row">
-                      <span class="stat-val">{{ gameExtendedStats.white.swingsGained }}</span>
-                      <span class="stat-label">Swings gained</span>
-                      <span class="stat-val right">{{ gameExtendedStats.black.swingsGained }}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Accuracy by Piece -->
-                <div class="report-card" v-if="gamePieceStats.some(p => p.white.count || p.black.count)">
-                  <div class="rc-head">
-                    <h4 class="rc-title">Accuracy by Piece</h4>
-                  </div>
-                  <div class="stat-table">
-                    <div class="stat-row stat-head">
-                      <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
-                      <span></span>
-                      <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
-                    </div>
-                    <div v-for="p in gamePieceStats" :key="p.key" class="stat-row">
-                      <span class="stat-val" :style="{ color: accColorForWeight(p.white.acc) }">{{ fmtAcc(p.white.acc) }}</span>
-                      <span class="stat-label">
-                        <span class="piece-sym">{{ p.symbol }}</span>{{ p.label }}
-                        <span class="piece-counts">{{ p.white.count }}/{{ p.black.count }}</span>
-                      </span>
-                      <span class="stat-val right" :style="{ color: accColorForWeight(p.black.acc) }">{{ fmtAcc(p.black.acc) }}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Key Moments -->
-                <div class="report-card" v-if="keyMoments.length">
-                  <div class="rc-head">
-                    <h4 class="rc-title">Key Moments</h4>
-                    <span class="rc-sub">Tap to jump</span>
-                  </div>
-                  <div class="moments-list">
-                    <button v-for="m in keyMoments" :key="'km-' + m.nodeId" class="moment-row" @click="jumpToMoment(m)">
-                      <span class="moment-side" :class="m.side"></span>
-                      <span class="moment-san">{{ Math.ceil(m.ply / 2) }}{{ m.ply % 2 === 1 ? '.' : '...' }} {{ m.san }}</span>
-                      <img v-if="accuracySymbol(m.accuracy)" :src="accuracySymbol(m.accuracy)" class="moment-icon" />
-                      <span class="moment-swing">{{ (m.swing / 100).toFixed(1) }}</span>
-                    </button>
-                  </div>
-                </div>
-
               </div>
             </template>
           </div>
-        </Teleport>
 
-        <div class="explorer" v-else-if="activeTab === 'explorer'">
-          <div class="explorer-db-toggle">
-            <button :class="{ active: explorerDb === 'masters' }" @click="explorerDb = 'masters'">Masters</button>
-            <button :class="{ active: explorerDb === 'lichess' }" @click="explorerDb = 'lichess'">Players</button>
-          </div>
-          <div v-if="explorerLoading" class="explorer-status">
-            <div class="mini-spinner"></div>
-            Loading {{ explorerDb === 'masters' ? 'master' : 'player' }} games…
-          </div>
-          <div v-else-if="explorerError" class="explorer-status error">{{ explorerError }}</div>
-          <template v-else>
-            <div class="explorer-header">
-              <span class="explorer-eco" v-if="openingEco">{{ openingEco }}</span>
-              <span class="explorer-name">{{ opening }}</span>
-            </div>
-            <div class="explorer-table" v-if="explorerMoves.length">
-              <div class="explorer-row explorer-row-head">
-                <span class="col-move">Move</span>
-                <span class="col-games">Games</span>
-                <span class="col-split">W / D / B</span>
+          <!-- ============ REPORT (teleported to body when maximized) ============ -->
+          <Teleport
+            to="body"
+            :disabled="!isReportMaximized"
+            v-else-if="activeTab === 'report'"
+          >
+            <div class="report" :class="{ maximized: isReportMaximized }">
+              <div class="report-header">
+                <h3 class="report-title">Game Report</h3>
+                <div class="report-header-actions">
+                  <button
+                    v-if="isReportMaximized"
+                    class="start-review-btn"
+                    @click="startReview"
+                    title="Close report and browse moves"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                    Start Review
+                  </button>
+                  <button
+                    class="report-expand-btn"
+                    @click="toggleReportMaximize"
+                    :title="isReportMaximized ? 'Minimize report (Esc)' : 'Maximize report'"
+                  >
+                    <svg
+                      v-if="!isReportMaximized"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                    </svg>
+                    <svg
+                      v-else
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <div v-for="m in explorerMoves" :key="m.uci" class="explorer-row" @click="playExplorerMove(m.uci)">
-                <span class="col-move">{{ prettyMove(m.san) }}</span>
-                <span class="col-games">
-                  <span class="games-percent">{{ m.percent }}%</span>
-                  <span class="games-count">{{ formatCount(m.total) }}</span>
-                </span>
-                <span class="col-split">
-                  <div class="split-bar">
-                    <div class="split-white" :style="{ width: m.white + '%' }">
-                      <span v-if="m.white >= 15" class="split-pct">{{ m.white }}%</span>
+
+              <!-- Score boxes -->
+              <div class="score-row">
+                <div v-for="side in ['white', 'black']" :key="side" class="score-box" :class="side">
+                  <span class="score-num">
+                    {{ gameReportStats[side].accuracy !== null ? gameReportStats[side].accuracy.toFixed(1) + '%' : '—' }}
+                  </span>
+                  <span class="score-rating">{{ estimatedRatings[side] ?? '—' }}</span>
+                </div>
+              </div>
+
+              <!-- Move table -->
+              <div class="cls-table">
+                <div class="cls-head">
+                  <span></span>
+                  <span class="cls-name">{{ whiteName }}</span>
+                  <span></span>
+                  <span class="cls-name">{{ blackName }}</span>
+                </div>
+
+                <div v-for="key in classificationOrder" :key="key" class="cls-line">
+                  <span class="cls-label" :style="{ color: classificationMeta[key].color }">
+                    {{ classificationMeta[key].label }}
+                  </span>
+                  <span
+                    class="cls-num"
+                    :class="{ dim: gameReportStats.white.counts[key] === 0 }"
+                    :style="{ color: classificationMeta[key].color }"
+                    @click="jumpToClassification('white', key)"
+                  >{{ gameReportStats.white.counts[key] }}</span>
+                  <img :src="accuracySymbol(key)" class="cls-icon" />
+                  <span
+                    class="cls-num"
+                    :class="{ dim: gameReportStats.black.counts[key] === 0 }"
+                    :style="{ color: classificationMeta[key].color }"
+                    @click="jumpToClassification('black', key)"
+                  >{{ gameReportStats.black.counts[key] }}</span>
+                </div>
+              </div>
+
+              <!-- Eval graph -->
+              <div class="eval-graph-card" v-if="evalGraphGeom">
+                <div
+                  class="eval-graph-area"
+                  @click="evalGraphClick"
+                  @mousemove="evalGraphHover"
+                  @mouseleave="graphHoverIdx = -1"
+                >
+                  <svg class="eval-graph-svg" viewBox="0 0 1000 300" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="egWhiteGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#fbf8ef" />
+                        <stop offset="1" stop-color="#ddd8c8" />
+                      </linearGradient>
+                      <linearGradient id="egBlackGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#1c1b18" />
+                        <stop offset="1" stop-color="#3f3d37" />
+                      </linearGradient>
+                    </defs>
+                    <path :d="evalGraphGeom.blackArea" fill="url(#egBlackGrad)" />
+                    <path :d="evalGraphGeom.whiteArea" fill="url(#egWhiteGrad)" />
+                    <line x1="0" y1="75" x2="1000" y2="75" class="eg-grid" />
+                    <line x1="0" y1="225" x2="1000" y2="225" class="eg-grid" />
+                    <line x1="0" y1="150" x2="1000" y2="150" class="eg-center" />
+                    <path :d="evalGraphGeom.line" class="eg-line" fill="none" />
+                  </svg>
+                  <div
+                    v-if="evalGraphGeom.currentIdx >= 0"
+                    class="eg-current"
+                    :style="{ left: evalGraphGeom.coords[evalGraphGeom.currentIdx].xPct + '%' }"
+                  ></div>
+                  <template v-if="graphHoverData">
+                    <div class="eg-hover-line" :style="{ left: graphHoverData.pt.xPct + '%' }"></div>
+                    <div
+                      class="eg-hover-dot"
+                      :class="graphHoverData.pt.accuracy || 'plain'"
+                      :style="{ left: graphHoverData.pt.xPct + '%', top: graphHoverData.pt.yPct + '%' }"
+                    ></div>
+                    <div
+                      class="eg-tooltip"
+                      :class="{ below: graphHoverData.below }"
+                      :style="{ left: graphHoverData.leftPct + '%' }"
+                    >
+                      <span class="eg-tooltip-move">{{ graphHoverData.label }}{{ graphHoverData.san ? ' ' + graphHoverData.san : '' }}</span>
+                      <span class="eg-tooltip-eval">{{ graphHoverData.evalText }}</span>
+                      <span
+                        v-if="graphHoverData.accLabel"
+                        class="eg-tooltip-acc"
+                        :style="{ color: graphHoverData.accColor }"
+                        >{{ graphHoverData.accLabel }}</span
+                      >
                     </div>
-                    <div class="split-draw" :style="{ width: m.draws + '%' }">
-                      <span v-if="m.draws >= 15" class="split-pct">{{ m.draws }}%</span>
+                  </template>
+                  <span
+                    v-for="pt in evalGraphGeom.coords.filter(c => ['brilliant','great','inaccuracy','mistake','blunder'].includes(c.accuracy))"
+                    :key="'eg-' + pt.ply"
+                    class="eg-dot"
+                    :class="[pt.accuracy, { current: pt.nodeId === currentNode.id }]"
+                    :style="{ left: pt.xPct + '%', top: pt.yPct + '%' }"
+                    @click.stop="jumpToNode(pt.nodeId)"
+                  ></span>
+                </div>
+              </div>
+
+              <!-- ===== MAXIMIZED-ONLY CARDS ===== -->
+              <template v-if="isReportMaximized">
+                <div class="report-max-grid">
+
+                  <!-- Accuracy by Phase -->
+                  <div class="report-card" v-if="gameExtendedStats">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Accuracy by Phase</h4>
+                      <div class="rc-legend">
+                        <span class="rc-legend-item"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                        <span class="rc-legend-item"><span class="side-swatch black-swatch"></span>{{ blackName }}</span>
+                      </div>
                     </div>
-                    <div class="split-black" :style="{ width: m.black + '%' }">
-                      <span v-if="m.black >= 15" class="split-pct">{{ m.black }}%</span>
+                    <div class="phase-list">
+                      <div v-for="phase in ['opening', 'middlegame', 'endgame']" :key="phase" class="phase-item">
+                        <span class="phase-name">{{ phase }}</span>
+                        <div class="phase-line">
+                          <span class="side-swatch white-swatch"></span>
+                          <div class="phase-bar">
+                            <div :style="{ width: (gameExtendedStats.white.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.white.phases[phase]) }"></div>
+                          </div>
+                          <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.white.phases[phase]) }">{{ fmtAcc(gameExtendedStats.white.phases[phase]) }}</span>
+                        </div>
+                        <div class="phase-line">
+                          <span class="side-swatch black-swatch"></span>
+                          <div class="phase-bar">
+                            <div :style="{ width: (gameExtendedStats.black.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.black.phases[phase]) }"></div>
+                          </div>
+                          <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.black.phases[phase]) }">{{ fmtAcc(gameExtendedStats.black.phases[phase]) }}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </span>
-              </div>
-              <div class="explorer-row explorer-row-total" v-if="explorerStats">
-                <span class="col-move">Σ</span>
-                <span class="col-games">
-                  <span class="games-percent">100%</span>
-                  <span class="games-count">{{ formatCount(explorerStats.total) }}</span>
-                </span>
-                <span class="col-split">
-                  <div class="split-bar">
-                    <div class="split-white" :style="{ width: explorerStats.white + '%' }">
-                      <span v-if="explorerStats.white >= 15" class="split-pct">{{ explorerStats.white }}%</span>
+
+                  <!-- Game Stats -->
+                  <div class="report-card" v-if="gameExtendedStats">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Game Stats</h4>
                     </div>
-                    <div class="split-draw" :style="{ width: explorerStats.draws + '%' }">
-                      <span v-if="explorerStats.draws >= 15" class="split-pct">{{ explorerStats.draws }}%</span>
-                    </div>
-                    <div class="split-black" :style="{ width: explorerStats.black + '%' }">
-                      <span v-if="explorerStats.black >= 15" class="split-pct">{{ explorerStats.black }}%</span>
+                    <div class="stat-table">
+                      <div class="stat-row stat-head">
+                        <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                        <span></span>
+                        <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.checks }}</span>
+                        <span class="stat-label">Checks</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.checks }}</span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.captures }}</span>
+                        <span class="stat-label">Captures</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.captures }}</span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.cpLost }}</span>
+                        <span class="stat-label">Pawns lost</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.cpLost }}</span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.swingsGained }}</span>
+                        <span class="stat-label">Swings gained</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.swingsGained }}</span>
+                      </div>
                     </div>
                   </div>
-                </span>
-              </div>
+
+                  <!-- Accuracy by Piece -->
+                  <div class="report-card" v-if="gamePieceStats.some(p => p.white.count || p.black.count)">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Accuracy by Piece</h4>
+                    </div>
+                    <div class="stat-table">
+                      <div class="stat-row stat-head">
+                        <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                        <span></span>
+                        <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
+                      </div>
+                      <div v-for="p in gamePieceStats" :key="p.key" class="stat-row">
+                        <span class="stat-val" :style="{ color: accColorForWeight(p.white.acc) }">{{ fmtAcc(p.white.acc) }}</span>
+                        <span class="stat-label">
+                          <span class="piece-sym">{{ p.symbol }}</span>{{ p.label }}
+                          <span class="piece-counts">{{ p.white.count }}/{{ p.black.count }}</span>
+                        </span>
+                        <span class="stat-val right" :style="{ color: accColorForWeight(p.black.acc) }">{{ fmtAcc(p.black.acc) }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Key Moments -->
+                  <div class="report-card" v-if="keyMoments.length">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Key Moments</h4>
+                      <span class="rc-sub">Tap to jump</span>
+                    </div>
+                    <div class="moments-list">
+                      <button v-for="m in keyMoments" :key="'km-' + m.nodeId" class="moment-row" @click="jumpToMoment(m)">
+                        <span class="moment-side" :class="m.side"></span>
+                        <span class="moment-san">{{ Math.ceil(m.ply / 2) }}{{ m.ply % 2 === 1 ? '.' : '...' }} {{ m.san }}</span>
+                        <img v-if="accuracySymbol(m.accuracy)" :src="accuracySymbol(m.accuracy)" class="moment-icon" />
+                        <span class="moment-swing">{{ (m.swing / 100).toFixed(1) }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              </template>
             </div>
-            <div class="explorer-status" v-else>No games found for this position</div>
-          </template>
+          </Teleport>
+
+          <div class="explorer" v-else-if="activeTab === 'explorer'">
+            <div class="explorer-db-toggle">
+              <button :class="{ active: explorerDb === 'masters' }" @click="explorerDb = 'masters'">Masters</button>
+              <button :class="{ active: explorerDb === 'lichess' }" @click="explorerDb = 'lichess'">Players</button>
+            </div>
+            <div v-if="explorerLoading" class="explorer-status">
+              <div class="mini-spinner"></div>
+              Loading {{ explorerDb === 'masters' ? 'master' : 'player' }} games…
+            </div>
+            <div v-else-if="explorerError" class="explorer-status error">{{ explorerError }}</div>
+            <template v-else>
+              <div class="explorer-header">
+                <span class="explorer-eco" v-if="openingEco">{{ openingEco }}</span>
+                <span class="explorer-name">{{ opening }}</span>
+              </div>
+              <div class="explorer-table" v-if="explorerMoves.length">
+                <div class="explorer-row explorer-row-head">
+                  <span class="col-move">Move</span>
+                  <span class="col-games">Games</span>
+                  <span class="col-split">W / D / B</span>
+                </div>
+                <div v-for="m in explorerMoves" :key="m.uci" class="explorer-row" @click="playExplorerMove(m.uci)">
+                  <span class="col-move">{{ prettyMove(m.san) }}</span>
+                  <span class="col-games">
+                    <span class="games-percent">{{ m.percent }}%</span>
+                    <span class="games-count">{{ formatCount(m.total) }}</span>
+                  </span>
+                  <span class="col-split">
+                    <div class="split-bar">
+                      <div class="split-white" :style="{ width: m.white + '%' }">
+                        <span v-if="m.white >= 15" class="split-pct">{{ m.white }}%</span>
+                      </div>
+                      <div class="split-draw" :style="{ width: m.draws + '%' }">
+                        <span v-if="m.draws >= 15" class="split-pct">{{ m.draws }}%</span>
+                      </div>
+                      <div class="split-black" :style="{ width: m.black + '%' }">
+                        <span v-if="m.black >= 15" class="split-pct">{{ m.black }}%</span>
+                      </div>
+                    </div>
+                  </span>
+                </div>
+                <div class="explorer-row explorer-row-total" v-if="explorerStats">
+                  <span class="col-move">Σ</span>
+                  <span class="col-games">
+                    <span class="games-percent">100%</span>
+                    <span class="games-count">{{ formatCount(explorerStats.total) }}</span>
+                  </span>
+                  <span class="col-split">
+                    <div class="split-bar">
+                      <div class="split-white" :style="{ width: explorerStats.white + '%' }">
+                        <span v-if="explorerStats.white >= 15" class="split-pct">{{ explorerStats.white }}%</span>
+                      </div>
+                      <div class="split-draw" :style="{ width: explorerStats.draws + '%' }">
+                        <span v-if="explorerStats.draws >= 15" class="split-pct">{{ explorerStats.draws }}%</span>
+                      </div>
+                      <div class="split-black" :style="{ width: explorerStats.black + '%' }">
+                        <span v-if="explorerStats.black >= 15" class="split-pct">{{ explorerStats.black }}%</span>
+                      </div>
+                    </div>
+                  </span>
+                </div>
+              </div>
+              <div class="explorer-status" v-else>No games found for this position</div>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -2996,6 +3117,29 @@
     height: auto !important;
     aspect-ratio: 1 / 1 !important;
     display: block;
+  }
+
+  /* Best-move arrow overlay (separate from chessground's own shapes) */
+  .best-arrow-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 6;
+    overflow: visible;
+  }
+
+  .best-arrow-line {
+    stroke: #15781b;
+    stroke-width: 0.17;
+    stroke-linecap: butt;
+    opacity: 0.85;
+  }
+
+  .best-arrow-head {
+    fill: #15781b;
+    opacity: 0.85;
   }
 
   :deep(.cg-wrap) {
@@ -3505,79 +3649,113 @@
   .loading-fade-enter-active, .loading-fade-leave-active { transition: opacity 0.35s ease; }
   .loading-fade-enter-from, .loading-fade-leave-to { opacity: 0; }
 
-  /* ===== MOVES PANEL ======================================================= */
+  /* ===== MOVES PANEL (rail + body) ========================================= */
   .moves {
+    --rail-btn: 2.3rem;
+    --rail-gap: 6px;
+    --rail-pad: 8px;
     margin-top: 0;
     background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
     border-radius: 16px;
     width: 100%;
     max-width: 500px;
     box-shadow: 0 15px 35px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     box-sizing: border-box;
     border: 1px solid rgba(255, 255, 255, 0.08);
     margin: 0 auto;
     min-height: 340px;
     flex: 1 1 auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(194, 197, 170, 0.4) rgba(0, 0, 0, 0.2);
-    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
   }
 
   @media (min-width: 1200px) {
     .moves { max-width: 20rem; }
   }
 
-  .tabs-toggle {
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    display: flex;
-    gap: 4px;
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    padding: 10px 10px 9px;
-    margin: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  .moves-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(194, 197, 170, 0.4) rgba(0, 0, 0, 0.2);
+    overscroll-behavior: contain;
   }
 
-  .tabs-toggle button {
-    flex: 1;
-    background: transparent;
+  /* Vertical tab rail */
+  .tab-rail {
+    position: relative;
+    flex: 0 0 auto;
+    width: calc(var(--rail-btn) + 2 * var(--rail-pad));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--rail-gap);
+    padding: var(--rail-pad) 0;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.2);
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: inset -6px 0 12px -8px rgba(0, 0, 0, 0.4);
+  }
+
+  .tab-rail-indicator {
+    position: absolute;
+    top: var(--rail-pad);
+    left: 50%;
+    width: var(--rail-btn);
+    height: var(--rail-btn);
+    margin-left: calc(var(--rail-btn) / -2);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(168, 217, 122, 0.24), rgba(106, 209, 63, 0.12));
+    box-shadow: inset 0 0 0 1px rgba(168, 217, 122, 0.3), 0 4px 12px rgba(0, 0, 0, 0.3);
+    transform: translateY(calc(var(--i, 0) * (var(--rail-btn) + var(--rail-gap))));
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+  }
+
+  .tab-rail-indicator::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: 3px;
+    background: #a8d97a;
+    box-shadow: 0 0 8px rgba(168, 217, 122, 0.8);
+  }
+
+  .rail-btn {
+    position: relative;
+    z-index: 1;
+    width: var(--rail-btn);
+    height: var(--rail-btn);
     border: none;
-    color: rgba(245, 245, 220, 0.6);
-    padding: 0.55rem 0.4rem;
-    border-radius: 7px;
+    border-radius: 12px;
+    background: transparent;
+    color: rgba(244, 240, 227, 0.55);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    font-weight: 700;
-    font-family: serif;
-    font-size: clamp(0.7rem, 2vw, 0.95rem);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    transition: all 0.2s ease;
+    padding: 0;
+    transition: color 0.2s ease, background 0.2s ease, transform 0.1s ease;
     touch-action: manipulation;
   }
 
-  .tabs-toggle button:hover:not(.active) {
-    color: rgba(245, 245, 220, 0.85);
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .tabs-toggle button.active {
-    background: rgba(0, 0, 0, 0.28);
-    color: #f4f0e3;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  }
+  .rail-btn:hover:not(.on) { color: rgba(244, 240, 227, 0.9); background: rgba(255, 255, 255, 0.06); }
+  .rail-btn:active { transform: scale(0.92); }
+  .rail-btn.on { color: #c4ee9c; }
+  .rail-btn svg { display: block; }
 
   .moveslist {
-    margin: 8px auto 0;
+    margin: 8px 8px 8px;
     padding: 8px;
-    width: 100%;
+    width: auto;
     box-sizing: border-box;
     background: linear-gradient(135deg, var(--list-1), var(--list-2));
     border-radius: 12px;
@@ -3866,6 +4044,7 @@
     height: 5.5%;
     border-radius: 50%;
     pointer-events: none;
+    z-index: 7;
   }
 
   .line-move { cursor: pointer; padding: 0 2px; border-radius: 4px; }
@@ -4765,10 +4944,9 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
-  /* ===== MOBILE: STICKY TITLE + MINIMAL SCROLL ============================= */
   @media (max-width: 767px) {
     .acc-badge { width: 19px; height: 19px; }
-    .board-acc-icon { width: 6.1%; height: 6.1%; }
+    .board-acc-icon { width: 6.5%; height: 6.5%; }
 
     .grid-layout {
       display: flex;
@@ -4776,12 +4954,6 @@
       min-height: 100dvh;
       padding: 0;
       gap: 0;
-    }
-
-    .report:not(.maximized) .report-header {
-      top: 2.4rem;
-      margin: -0.4rem -0.6rem 0.4rem;
-      padding: 0.4rem 0.6rem;
     }
 
     .board-area,
@@ -4811,6 +4983,8 @@
       gap: 0;
       align-items: stretch;
     }
+
+    .board-col { position: relative; }
 
     .evalbar {
       order: -1;
@@ -4911,21 +5085,21 @@
     }
 
     .moves {
+      --rail-btn: 2.1rem;
+      --rail-pad: 6px;
       flex: 0 1 auto;
       min-height: 300px;
       max-height: 300px;
-      height: auto;
+      height: 300px;
       max-width: none;
       margin: 0;
-      overscroll-behavior: auto;
+      border-radius: 0;
     }
-
-    .tabs-toggle { padding: 7px; }
 
     .moveslist {
       padding: 5px;
       gap: 3px;
-      margin-top: 5px;
+      margin: 5px 5px 5px;
       overscroll-behavior: auto;
     }
 
@@ -4937,6 +5111,14 @@
 
     .report-header {
       position: sticky;
+    }
+
+    .report:not(.maximized) .report-header {
+      top: 0;
+      z-index: 5;
+      margin: -0.4rem -0.6rem 0.4rem;
+      padding: 0.4rem 0.6rem;
+      background: linear-gradient(180deg, var(--panel-1) 80%, transparent);
     }
 
     .report { padding: 0.6rem; }
