@@ -16,7 +16,7 @@
   import castleSfx from '../assets/sounds/castle.mp3'
   import promoteSfx from '../assets/sounds/promote.mp3'
 
-  const currentTheme = ref(localStorage.getItem('chesslab_theme') || 'brown')
+  const currentTheme = ref(localStorage.getItem('chesslab_theme') || 'midnight')
   watch(currentTheme, (newTheme) => {
     document.documentElement.setAttribute('data-theme', newTheme)
     localStorage.setItem('chesslab_theme', newTheme)
@@ -26,6 +26,9 @@
   let engineReady = false
 
   onMounted(async () => {
+    window.addEventListener('pointerdown', unlockAudio)
+    window.addEventListener('keydown', unlockAudio)
+    loadSounds()
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('click', closeContextMenu)
     window.addEventListener('scroll', closeContextMenu, true)
@@ -45,6 +48,8 @@
   })
 
   onBeforeUnmount(() => {
+    window.removeEventListener('pointerdown', unlockAudio)
+    window.removeEventListener('keydown', unlockAudio)
     window.removeEventListener('keydown', handleKeyDown)
     window.removeEventListener('click', closeContextMenu)
     window.removeEventListener('scroll', closeContextMenu, true)
@@ -100,18 +105,57 @@
   const activeTab = ref('moves')
   const contextMenu = ref({ visible: false, x: 0, y: 0, nodeId: null })
   const shareMenuOpen = ref(false)
+  const lineStart = ref({ turn: 'w', num: 1 })
 
-  const audioCache = {
-    move: new Audio(moveSfx),
-    capture: new Audio(captureSfx),
-    check: new Audio(checkSfx),
-    castle: new Audio(castleSfx),
-    promote: new Audio(promoteSfx)
+  // ===== TABS (icon rail) =====
+  const tabs = [
+    { id: 'moves', label: 'Moves', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
+    { id: 'report', label: 'Report', icon: 'M5 20V11M12 20V4M19 20v-7' },
+    { id: 'explorer', label: 'Explorer', icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5z' }
+  ]
+
+  function numberedLine(sans) {
+    let { turn, num } = lineStart.value
+    return sans.map((san, i) => {
+      let prefix = ''
+      if (turn === 'w') prefix = `${num}.`
+      else if (i === 0) prefix = `${num}... `
+      if (turn === 'b') num++
+      turn = turn === 'w' ? 'b' : 'w'
+      return { san, prefix }
+    })
   }
-  Object.values(audioCache).forEach(audio => {
-    audio.preload = 'auto'
-    audio.volume = 0.6
-  })
+
+  const soundUrls = { move: moveSfx, capture: captureSfx, check: checkSfx, castle: castleSfx, promote: promoteSfx }
+  const audioBuffers = {}
+  let audioCtx = null
+  let masterGain = null
+
+  function getAudioCtx() {
+    if (audioCtx) return audioCtx
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (!AC) return null
+    audioCtx = new AC()
+    masterGain = audioCtx.createGain()
+    masterGain.gain.value = 0.6
+    masterGain.connect(audioCtx.destination)
+    return audioCtx
+  }
+
+  async function loadSounds() {
+    const ctx = getAudioCtx()
+    if (!ctx) return
+    await Promise.all(Object.entries(soundUrls).map(async ([name, url]) => {
+      try {
+        const res = await fetch(url)
+        audioBuffers[name] = await ctx.decodeAudioData(await res.arrayBuffer())
+      } catch (e) {}
+    }))
+  }
+
+  function unlockAudio() {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume()
+  }
 
   // --- Engine Toggle & MultiPV State ---
   const isEngineEnabled = ref(true)
@@ -124,27 +168,19 @@
   }
   const showBestArrow = ref(loadStoredBestArrowSetting())
 
+  // ===== BEST MOVE ARROW (own SVG layer, never touches the user's arrows) =====
+  const NOT_BEST = ['good', 'excellent', 'inaccuracy', 'mistake', 'blunder']
+  const CASTLE_FIX = { e1h1: 'e1g1', e1a1: 'e1c1', e8h8: 'e8g8', e8a8: 'e8c8' }
+
   watch(showBestArrow, (enabled) => {
     localStorage.setItem(BEST_ARROW_STORAGE_KEY, String(enabled))
-    if (!boardAPI.value) return
-    if (!enabled) {
-      boardAPI.value.hideMoves()
-    } else {
-      drawBestArrow()
-    }
   })
 
   function loadStoredMultiPV() {
     const stored = Number(localStorage.getItem('chesslab_multiPV'))
     if (stored >= 1 && stored <= 3) return stored
-    localStorage.setItem('chesslab_multiPV', '3')
-    return 3
-  }
-
-  function handleBoardClick() {
-    nextTick(() => {
-      drawBestArrow()
-    })
+    localStorage.setItem('chesslab_multiPV', '1')
+    return 1
   }
 
   const analysisMultiPV = ref(loadStoredMultiPV())
@@ -229,7 +265,24 @@
     return null
   }
 
+  let savedExplorerScrollTop = 0
+
   async function importLichessExplorer() {
+    const isExplorer = activeTab.value === 'explorer' && movesScrollRef.value
+    if (isExplorer) {
+      savedExplorerScrollTop = movesScrollRef.value.scrollTop
+    }
+
+    const restoreScroll = () => {
+      if (isExplorer && movesScrollRef.value) {
+        nextTick(() => {
+          if (movesScrollRef.value) {
+            movesScrollRef.value.scrollTop = savedExplorerScrollTop
+          }
+        })
+      }
+    }
+
     if (isExplorerOutOfBook(currentNode.value, explorerDb.value)) {
       const last = getLastOpening(currentNode.value)
       if (last) {
@@ -243,10 +296,14 @@
       explorerMoves.value = []
       explorerError.value = ""
       explorerLoading.value = false
+
+      restoreScroll()
       return
     }
+
     explorerLoading.value = true
     explorerError.value = ""
+
     const uciList = movesListUCI.value
     if (uciList.length > 40) {
       markNodeOutOfBook(explorerDb.value)
@@ -259,15 +316,20 @@
         openingEco.value = ""
       }
       explorerLoading.value = false
+
+      restoreScroll()
       return
     }
+
     const bookList = uciList.join(",")
     const dbParam = explorerDb.value
     const url = bookList
       ? `../../api/explorer?db=${dbParam}&play=${encodeURIComponent(bookList)}`
       : `../../api/explorer?db=${dbParam}`
+
     try {
       const response = await fetch(url)
+
       if (response.status === 204) {
         markNodeOutOfBook(explorerDb.value)
         const last = getLastOpening(currentNode.value)
@@ -283,13 +345,16 @@
         explorerError.value = ""
         return
       }
+
       if (!response.ok) {
         explorerError.value = `Explorer error (${response.status})`
         explorerStats.value = null
         explorerMoves.value = []
         return
       }
+
       const data = await response.json()
+
       if (data.opening) {
         opening.value = data.opening.name
         openingEco.value = data.opening.eco
@@ -307,16 +372,19 @@
           openingEco.value = ""
         }
       }
+
       const total = (data.white ?? 0) + (data.draws ?? 0) + (data.black ?? 0)
       if (total === 0 && uciList.length > 0) {
         markNodeOutOfBook(explorerDb.value)
       }
+
       explorerStats.value = total > 0 ? {
         white: Math.round((data.white / total) * 100),
         draws: Math.round((data.draws / total) * 100),
         black: Math.round((data.black / total) * 100),
         total
       } : null
+
       explorerMoves.value = (data.moves ?? [])
         .map(m => {
           const moveTotal = (m.white ?? 0) + (m.draws ?? 0) + (m.black ?? 0)
@@ -329,6 +397,7 @@
           }
         })
         .sort((a, b) => b.total - a.total)
+
       explorerError.value = ""
     } catch (error) {
       console.warn("Explorer fetch failed:", error)
@@ -337,6 +406,9 @@
       explorerMoves.value = []
     } finally {
       explorerLoading.value = false
+
+      // Restore scroll after loading finishes (covers success, errors, and 204s)
+      restoreScroll()
     }
   }
 
@@ -392,6 +464,37 @@
   let nodeIdCounter = 1
   const nodeMap = { 0: moveTree }
   const currentNode = shallowRef(moveTree)
+
+  // Best move arrow geometry (board is a 8x8 viewBox)
+  const bestArrow = computed(() => {
+    moveData.value
+    treeVersion.value
+    if (!showBestArrow.value) return null
+    const node = currentNode.value
+    const data = node.analysisData
+    if (!node.san || !data?.best_move || !NOT_BEST.includes(data.move_accuracy)) return null
+
+    const best = CASTLE_FIX[data.best_move] ?? data.best_move
+    const flipped = isFlipped.value
+    const center = (sq) => {
+      const file = sq.charCodeAt(0) - 97
+      const rank = Number(sq[1]) - 1
+      return { x: (flipped ? 7 - file : file) + 0.5, y: (flipped ? rank : 7 - rank) + 0.5 }
+    }
+    const a = center(best.slice(0, 2))
+    const b = center(best.slice(2, 4))
+    const len = Math.hypot(b.x - a.x, b.y - a.y)
+    if (!len) return null
+    const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
+    const headLen = 0.4, headHalf = 0.27
+    const bx = b.x - ux * headLen, by = b.y - uy * headLen
+    const head = [
+      `${b.x},${b.y}`,
+      `${bx - uy * headHalf},${by + ux * headHalf}`,
+      `${bx + uy * headHalf},${by - ux * headHalf}`
+    ].join(' ')
+    return { x1: a.x, y1: a.y, x2: bx, y2: by, head }
+  })
 
   const renderedMoves = computed(() => {
     treeVersion.value
@@ -487,15 +590,14 @@
   }
 
   function playSound(type) {
-    if (!soundOn.value) return
-    const audio = audioCache[type]
-    if (!audio) return
-    try {
-      const clone = audio.cloneNode()
-      clone.volume = audio.volume
-      clone.preload = 'auto'
-      clone.play().catch(() => {})
-    } catch (e) {}
+    if (!soundOn.value || !audioCtx) return
+    const buffer = audioBuffers[type]
+    if (!buffer) return
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    const src = audioCtx.createBufferSource()
+    src.buffer = buffer
+    src.connect(masterGain)
+    src.start(0)
   }
 
   function soundForLastMove(sanMove) {
@@ -515,11 +617,6 @@
     }
   }
 
-  watch(showBestArrow, (val) => {
-    if (!val && boardAPI.value) boardAPI.value.hideMoves()
-    else drawBestArrow()
-  })
-
   watch(currentNode, () => { if (activeTab.value === 'explorer') importLichessExplorer() }, { immediate: true })
   watch(activeTab, (newTab) => { if (newTab === 'explorer') importLichessExplorer() })
   watch(explorerDb, () => { importLichessExplorer() })
@@ -536,12 +633,6 @@
   }
   function copyPGN() { copyToClipboard(chess.pgn() || '(no moves yet)', 'PGN') }
   function copyFEN() { copyToClipboard(chess.fen(), 'FEN') }
-
-  function drawBestArrow() {
-    if (!showBestArrow.value || !boardAPI.value || !bestArrowSquares.value) return
-    const { from, to } = bestArrowSquares.value
-    boardAPI.value.drawMove(from, to, 'blue')
-  }
 
   async function onBoardCreated(api) {
     boardAPI.value = api
@@ -643,7 +734,12 @@
         yPct: (y / EVAL_GRAPH_H) * 100
       }
     })
-    const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')
+    const line = coords.reduce((d, c, i) => {
+      if (i === 0) return `M${c.x.toFixed(1)},${c.y.toFixed(1)}`
+      const p = coords[i - 1]
+      const mx = ((p.x + c.x) / 2).toFixed(1)
+      return `${d} C${mx},${p.y.toFixed(1)} ${mx},${c.y.toFixed(1)} ${c.x.toFixed(1)},${c.y.toFixed(1)}`
+    }, '')
     const whiteArea = `${line} L${EVAL_GRAPH_W},${EVAL_GRAPH_H} L0,${EVAL_GRAPH_H} Z`
     const blackArea = `${line} L${EVAL_GRAPH_W},0 L0,0 Z`
     const currentIdx = coords.findIndex(c => c.nodeId === currentNode.value.id)
@@ -687,17 +783,15 @@
     }
   })
 
-  // ===== AUTO-SCROLL MOVES LIST (container-only, never scrolls the page) ==
   function scrollActiveMoveIntoView() {
     const container = movesScrollRef.value
     const list = movesListRef.value
     if (!container || !list) return
     const active = list.querySelector('.move-cell.active')
     if (!active) return
-    const tabsHeight = container.querySelector('.tabs-toggle')?.offsetHeight || 0
     const cRect = container.getBoundingClientRect()
     const aRect = active.getBoundingClientRect()
-    const topLimit = cRect.top + tabsHeight + 6
+    const topLimit = cRect.top + 6
     const bottomLimit = cRect.bottom - 6
     let delta = 0
     if (aRect.top < topLimit) delta = aRect.top - topLimit
@@ -714,7 +808,6 @@
   })
   watch(treeVersion, () => { rebuildEvalHistory() })
 
-  // ===== KEYBOARD SHORTCUTS HELP ===========================================
   const showShortcuts = ref(false)
   const shortcuts = [
     { keys: '← / →', desc: 'Previous / Next move' },
@@ -727,7 +820,6 @@
   ]
   function toggleShortcuts() { showShortcuts.value = !showShortcuts.value }
 
-  // ===== MOVE NOTES ========================================================
   const editingNoteNodeId = ref(null)
   const noteDraft = ref('')
   function openNoteEditor(nodeId) {
@@ -751,14 +843,12 @@
     noteDraft.value = ''
   }
 
-  // ===== REPORT MAXIMIZE ===================================================
   const isReportMaximized = ref(false)
   function toggleReportMaximize() { isReportMaximized.value = !isReportMaximized.value }
   watch(isReportMaximized, (max) => {
     document.body.style.overflow = max ? 'hidden' : ''
   })
 
-  // ✦ NEW: Start Review — exits the maximized report and goes to moves
   function startReview() {
     isReportMaximized.value = false
     activeTab.value = 'moves'
@@ -878,6 +968,7 @@
     moveTree.fen = chess.fen()
     nodeIdCounter = 1
     for (const key in nodeMap) if (parseInt(key) !== 0) delete nodeMap[key]
+    bestVariation.value = null
     treeVersion.value++
     capturedByWhite.value = []
     capturedByBlack.value = []
@@ -902,8 +993,7 @@
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
       isAnalyzing.value = false
-      if (showBestArrow.value && boardAPI.value) boardAPI.value.hideMoves()
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
       return
     }
     if (!isImporting.value && !isEngineEnabled.value && !cached) {
@@ -920,8 +1010,7 @@
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
       isAnalyzing.value = false
-      if (showBestArrow.value && boardAPI.value) boardAPI.value.hideMoves()
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
       return
     }
     if (cached && !hasRequiredMultiPV) {
@@ -930,11 +1019,10 @@
       lastMoveFromSquare.value = movesListUCI.value.at(-1)?.slice(0, 2) ?? null
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
     }
     isAnalyzing.value = true
     bestArrowSquares.value = null
-    if (showBestArrow.value && boardAPI.value) boardAPI.value.hideMoves()
     const beforeFen = currentNode.value.parent ? currentNode.value.parent.fen : moveTree.fen
     const afterFen = currentNode.value.fen
     const depthToUse = isImporting.value
@@ -954,12 +1042,13 @@
         currentNode.value.analysisData = result
         currentDepth.value = result.depth
         isAnalyzing.value = result.depth < depthToUse
-        evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine(); drawBestArrow()
+        evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
         if (!isImporting.value) treeVersion.value++
       },
       beforeFen, afterFen, moveTree.fen,
       multiPVToUse,
-      chess.isCheckmate()
+      chess.isCheckmate(),
+      chess.isStalemate()
     )
     isAnalyzing.value = false
   }
@@ -970,6 +1059,7 @@
   }
 
   function formatEval(evalObj) {
+    if (chess.isStalemate()) return '1/2-1/2'
     if (evalObj) {
       if (evalObj.type === "cp") return (evalObj.value / 100).toFixed(2)
       if (evalObj.type === "mate") return `M${evalObj.value}`
@@ -995,12 +1085,75 @@
 
   function flipBoard() { boardAPI.value.toggleOrientation(); rotate.value += 180 }
 
-  function accuracySymbol(acc) {
-    const map = {
-      brilliant: 'brilliant', best: 'best', excellent: 'excellent', good: 'good',
-      inaccuracy: 'inaccuracy', mistake: 'mistake', blunder: 'blunder', great: 'great', book: 'book'
-    }
-    return map[acc] ? `/moveClassifications/${map[acc]}.png` : undefined
+  // MOVE ICONS (inline SVG, colors come from accuracyColors) 
+  const ICON_STROKE = 'fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"'
+  const ICON_Q = `<path d="M23 24C23 17 28 14 32 14C37 14 41 17 41 22C41 27 36 29 33 32C32 33 32 35 32 37" ${ICON_STROKE}/><circle cx="32" cy="46" r="3.5" fill="#fff"/>`
+  const iconEx = (x) => `<rect x="${x - 3.5}" y="13" width="7" height="24" rx="3.5" fill="#fff"/><circle cx="${x}" cy="47" r="4" fill="#fff"/>`
+
+  const ICON_BODY = {
+    brilliant: iconEx(22) + iconEx(42),
+    great: iconEx(32),
+    best: '<polygon points="32,18 36.1,28.3 47.2,29.1 38.7,36.2 41.4,46.9 32,41 22.6,46.9 25.3,36.2 16.8,29.1 27.9,28.3" fill="#fff" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>',
+    excellent: '<rect x="14" y="28" width="9" height="20" rx="2" fill="#fff"/><path d="M26 29L33 14Q35 11 38 13Q40 15 39 18L37 25H48Q52 25 52 29Q52 31 51 32Q52 34 51 36Q52 38 50 40Q50 43 47 44L47 46H29Q26 46 26 44Z" fill="#fff"/>',
+    good: `<path d="M19 33L28 42L46 22" ${ICON_STROKE}/>`,
+    book: '<path d="M14 21Q23 19 31 24V47Q23 42 14 44Z" fill="#fff"/><path d="M50 21Q41 19 33 24V47Q41 42 50 44Z" fill="#fff"/>',
+    inaccuracy: `<g transform="translate(1.6 10.6) scale(.7)">${ICON_Q}</g><rect x="41.5" y="14" width="7" height="22" rx="3.5" fill="#fff"/><circle cx="45" cy="46" r="4" fill="#fff"/>`,
+    mistake: ICON_Q,
+    blunder: `<g transform="translate(1.7 11.4) scale(.68)">${ICON_Q}</g><g transform="translate(18.7 11.4) scale(.68)">${ICON_Q}</g>`
+  }
+
+  function shade(hex, amt) { // -1 darker ... 1 lighter
+    const n = parseInt(hex.slice(1), 16)
+    const f = c => Math.round(amt < 0 ? c * (1 + amt) : c + (255 - c) * amt)
+    return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`
+  }
+
+  const GLOW_ICONS = ['brilliant', 'great', 'best']
+
+    function accuracySymbol(acc) {
+    const body = ICON_BODY[acc]
+    if (!body) return undefined
+    const c = accuracyColors[acc]
+    const hasGlow = GLOW_ICONS.includes(acc)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 72 72">
+      <defs>
+        <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${shade(c, 0.5)}"/>
+          <stop offset="1" stop-color="${shade(c, -0.45)}"/>
+        </linearGradient>
+        <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${shade(c, 0.22)}"/>
+          <stop offset="1" stop-color="${shade(c, -0.3)}"/>
+        </linearGradient>
+        <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#fff" stop-opacity=".5"/>
+          <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </linearGradient>
+        <filter id="sym" x="-20%" y="-20%" width="140%" height="150%">
+          <feDropShadow dx="0" dy="1.8" stdDeviation="1.3" flood-color="#000" flood-opacity=".4"/>
+        </filter>
+        ${hasGlow ? `<filter id="glow" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="${c}" flood-opacity=".75"/></filter>` : ''}
+      </defs>
+      <g ${hasGlow ? 'filter="url(#glow)"' : ''}>
+        <circle cx="32" cy="32" r="30" fill="url(#rim)"/>
+        <circle cx="32" cy="32" r="25.5" fill="url(#face)"/>
+        <circle cx="32" cy="32" r="25.5" fill="none" stroke="${shade(c, -0.5)}" stroke-opacity=".6" stroke-width="1"/>
+        <path d="M10 28C10 15 20 8 32 8C44 8 54 15 54 28C46 21 18 21 10 28Z" fill="url(#shine)"/>
+      </g>
+      <g filter="url(#sym)">${body}</g>
+    </svg>`
+    return 'data:image/svg+xml,' + encodeURIComponent(svg)
+  }
+
+  function accuracyToClass(acc) {
+    if (acc === null || acc === undefined) return null
+    if (acc >= 95) return 'great'
+    if (acc >= 85) return 'best'
+    if (acc >= 75) return 'excellent'
+    if (acc >= 65) return 'good'
+    if (acc >= 45) return 'inaccuracy'
+    if (acc >= 20) return 'mistake'
+    return 'blunder'
   }
 
   function moveDescription() {
@@ -1030,6 +1183,8 @@
   }
 
   function uciLine() {
+    const fenParts = chess.fen().split(' ')
+    lineStart.value = { turn: fenParts[1], num: Number(fenParts[5]) || 1 }
     sanLine.value = []
     bestArrowSquares.value = null
     if (!moveData.value?.best_line) return
@@ -1140,6 +1295,53 @@
     requestAnalysisForNewMove()
   }
 
+  // ===== PLAY BEST MOVE INSTEAD (lightbulb / trash button) ================
+  const bestVariation = ref(null) // { nodeId, returnId }
+
+  const canPlayBest = computed(() => {
+    moveData.value // re-run when analysis updates
+    const n = currentNode.value
+    const d = n.analysisData
+    return !!(n.san && d?.best_move && NOT_BEST.includes(d.move_accuracy))
+  })
+
+  const inBestVariation = computed(() => {
+    treeVersion.value
+    if (!bestVariation.value) return false
+    let n = currentNode.value
+    while (n) {
+      if (n.id === bestVariation.value.nodeId) return true
+      n = n.parent
+    }
+    return false
+  })
+
+  function playBestInstead() {
+    if (isImporting.value || !canPlayBest.value) return
+    const badNode = currentNode.value
+    const parent = badNode.parent
+    const best = badNode.analysisData.best_move
+    const countBefore = parent.children.length
+    undoMove()
+    const result = applyUciMove(best)
+    if (!result) return
+    soundForLastMove(result)
+    boardAPI.value.setPosition(chess.fen())
+    // only remember it if we made a new line (don't delete the user's old lines)
+    if (parent.children.length > countBefore) {
+      bestVariation.value = { nodeId: currentNode.value.id, returnId: badNode.id }
+    }
+    requestAnalysisForNewMove()
+  }
+
+  function removeBestVariation() {
+    const v = bestVariation.value
+    if (!v) return
+    bestVariation.value = null
+    if (nodeMap[v.nodeId]) deleteMove(v.nodeId)
+    jumpToNode(v.returnId)
+  }
+
   const handleKeyDown = (event) => {
     const delay = 200
     const currentTime = Date.now()
@@ -1244,7 +1446,7 @@
         goToStart()
         treeVersion.value++
         await saveGameInsights()
-        // ✦ NEW: open the maximized report with blurred background
+        // open the maximized report with blurred background
         isReportMaximized.value = true
         activeTab.value = 'report'
       }
@@ -1694,12 +1896,13 @@
 
   function accColorForWeight(w) {
     if (w === null || w === undefined) return 'rgba(244,240,227,0.4)'
-    if (w >= 95) return '#6ad13f'
-    if (w >= 85) return '#90bc36'
-    if (w >= 70) return '#8eae83'
-    if (w >= 45) return '#f2bc43'
-    if (w >= 20) return '#f38800'
-    return '#FF0000'
+    if (w >= 95) return accuracyColors.great
+    if (w >= 85) return accuracyColors.best
+    if (w >= 75) return accuracyColors.excellent
+    if (w >= 65) return accuracyColors.good
+    if (w >= 45) return accuracyColors.inaccuracy
+    if (w >= 20) return accuracyColors.mistake
+    return accuracyColors.blunder
   }
 
   function fmtAcc(v) {
@@ -1924,7 +2127,6 @@
         class="board-wrapper"
         ref="boardRef"
         :style="{ '--last-move-highlight': lastMoveHighlightColor}"
-        @click="handleBoardClick"
       >
         <!-- TOP player bar -->
         <div class="player-bar" v-if="hasPlayerInfo">
@@ -1962,6 +2164,10 @@
               @board-created="onBoardCreated"
               :board-config="{ coordinates: true, animation: { enabled: true, duration: 100 } }"
             />
+            <svg v-if="bestArrow" class="best-arrow" viewBox="0 0 8 8">
+              <line :x1="bestArrow.x1" :y1="bestArrow.y1" :x2="bestArrow.x2" :y2="bestArrow.y2" />
+              <polygon :points="bestArrow.head" />
+            </svg>
             <img
               v-if="lastMoveSquare && lastMoveAccuracy"
               :src="accuracySymbol(lastMoveAccuracy)"
@@ -2010,44 +2216,64 @@
           </span>
         </div>
 
+        <!-- BOARD TOOLS -->
         <div class="boardtools">
           <div class="boardtools-left">
             <button
-              class="toolbar-icon-btn"
-              @click="toggleShortcuts"
-              title="Keyboard shortcuts (?)"
+              v-if="!inBestVariation"
+              class="bt-btn bt-ghost"
+              @click="playBestInstead"
+              :disabled="isImporting || !canPlayBest"
+              title="Play the best move instead"
+              aria-label="Play the best move instead"
             >
-              ?
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />
+              </svg>
+            </button>
+            <button
+              v-else
+              class="bt-btn bt-ghost"
+              @click="removeBestVariation"
+              title="Delete this line and go back"
+              aria-label="Delete this line and go back"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+              </svg>
             </button>
           </div>
+
           <div class="boardtools-nav">
             <button
-              class="jumpstart"
+              class="bt-btn"
               @click="goToStart"
               :disabled="isImporting || currentNode.parent === null"
-              title="Jump to start"
+              title="Jump to start (Home)"
+              aria-label="Jump to start"
             >
-              &lt;&lt;
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+              </svg>
             </button>
             <button
-              class="undo"
+              class="bt-btn"
               @click="undoAccuracy"
-              title="previous"
               :disabled="isImporting || currentNode.parent === null"
+              title="Previous (←)"
+              aria-label="Previous move"
             >
-              &lt;-
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
             </button>
-            <button class="reverse" @click="flipBoard" title="Flip board (F)" aria-label="Flip board">
-              <svg
-                viewBox="0 0 24 24"
-                width="17"
-                height="17"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.1"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
+            <button
+              class="bt-btn bt-accent"
+              @click="flipBoard"
+              title="Flip board (F)"
+              aria-label="Flip board"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M7 4v13" />
                 <path d="M3.5 13.5 7 17l3.5-3.5" />
                 <path d="M17 20V7" />
@@ -2055,28 +2281,40 @@
               </svg>
             </button>
             <button
-              class="redo"
-              title="next"
+              class="bt-btn"
               @click="redoAccuracy"
               :disabled="isImporting || currentNode.children.length === 0"
+              title="Next (→)"
+              aria-label="Next move"
             >
-              -&gt;
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
             </button>
             <button
-              class="jumpend"
+              class="bt-btn"
               @click="goToEnd"
               :disabled="isImporting || currentNode.children.length === 0"
+              title="Jump to end (End)"
+              aria-label="Jump to end"
             >
-              &gt;&gt;
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 17l5-5-5-5M13 17l5-5-5-5" />
+              </svg>
             </button>
           </div>
+
           <div class="share-menu-wrap">
             <button
-              class="toolbar-icon-btn"
+              class="bt-btn bt-ghost"
               @click="toggleShareMenu"
               title="Copy game"
+              aria-label="Copy game"
             >
-              📋
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="11" height="11" rx="2.5" />
+                <path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H16" />
+              </svg>
             </button>
             <div v-if="shareMenuOpen" class="share-menu">
               <button @click="copyPGN(); shareMenuOpen = false">
@@ -2178,12 +2416,12 @@
           <div class="line pretty-scroll" :class="{ analyzing: isAnalyzing }">
             <span class="evalnum2">{{ formatEval(moveData?.eval) }}</span>
             <span
-              v-for="(move, idx) in sanLine"
+              v-for="(t, idx) in numberedLine(sanLine)"
               :key="'best-' + idx"
               class="line-move"
               @click="playLineMoves(moveData.best_line, idx + 1)"
             >
-              {{ prettyMove(move) }}&nbsp;
+              <span v-if="t.prefix" class="line-num">{{ t.prefix }}</span>{{ prettyMove(t.san) }}&nbsp;
             </span>
           </div>
           <div
@@ -2192,12 +2430,12 @@
           >
             <span class="evalnum3">{{ moveData?.excellent_eval ? formatEval(moveData.excellent_eval) : " " }}</span>
             <span
-              v-for="(move, idx) in excellentSanLine"
+              v-for="(t, idx) in numberedLine(excellentSanLine)"
               :key="'exc-' + idx"
               class="line-move"
               @click="playLineMoves(moveData.excellent_line, idx + 1)"
             >
-              {{ prettyMove(move) }}&nbsp;
+              <span v-if="t.prefix" class="line-num">{{ t.prefix }}</span>{{ prettyMove(t.san) }}&nbsp;
             </span>
           </div>
           <div
@@ -2206,12 +2444,12 @@
           >
             <span class="evalnum3">{{ moveData?.third_eval ? formatEval(moveData.third_eval) : " " }}</span>
             <span
-              v-for="(move, idx) in thirdSanLine"
+              v-for="(t, idx) in numberedLine(thirdSanLine)"
               :key="'third-' + idx"
               class="line-move"
               @click="playLineMoves(moveData.third_line, idx + 1)"
             >
-              {{ prettyMove(move) }}&nbsp;
+              <span v-if="t.prefix" class="line-num">{{ t.prefix }}</span>{{ prettyMove(t.san) }}&nbsp;
             </span>
           </div>
           <p :style="{ color: color }" class="accuracydescribtion">
@@ -2223,460 +2461,410 @@
         </div>
       </div>
 
-      <div class="moves" ref="movesScrollRef">
-        <div class="tabs-toggle">
+      <div class="moves">
+        <!-- Thin icon rail instead of a tab bar -->
+        <div class="tabs-rail" role="tablist">
           <button
-            :class="{ active: activeTab === 'moves' }"
-            @click="activeTab = 'moves'"
+            v-for="t in tabs"
+            :key="t.id"
+            :class="{ active: activeTab === t.id }"
+            :title="t.label"
+            :aria-label="t.label"
+            @click="activeTab = t.id"
           >
-            Moves
-          </button>
-          <button
-            :class="{ active: activeTab === 'report' }"
-            @click="activeTab = 'report'"
-          >
-            Report
-          </button>
-          <button
-            :class="{ active: activeTab === 'explorer' }"
-            @click="activeTab = 'explorer'"
-          >
-            Explorer
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path :d="t.icon" />
+            </svg>
           </button>
         </div>
 
-        <div class="moveslist" v-if="activeTab === 'moves'" ref="movesListRef">
-          <template v-for="row in renderedMoves" :key="row.key">
-            <div
-              class="move-row"
-              :class="{ variant: row.depth > 0 }"
-              :style="{ '--indent': `${row.depth * 1.05}rem` }"
-            >
+        <div class="moves-body" ref="movesScrollRef">
+          <div class="moveslist" v-if="activeTab === 'moves'" ref="movesListRef">
+            <template v-for="row in renderedMoves" :key="row.key">
               <div
-                v-for="(cell, index) in row.cells"
-                :key="cell ? cell.key : `${row.key}-empty-${index}`"
-                class="move-cell"
-                :class="[{ active: cell && cell.node === currentNode, variant: cell && cell.variant }, { empty: !cell }]"
-                @click="cell && handleCellClick(cell.node.id)"
-                @dblclick="cell && openNoteEditor(cell.node.id)"
-                @contextmenu.prevent="cell && openContextMenu($event, cell.node.id)"
-                @touchstart="cell && handleTouchStart($event, cell.node.id)"
-                @touchend="cancelLongPress"
-                @touchmove="cancelLongPress"
+                class="move-row"
+                :class="{ variant: row.depth > 0 }"
+                :style="{ '--indent': `${row.depth * 1.05}rem` }"
               >
-                <template v-if="cell">
-                  <span v-if="cell.showNum" class="move-num"
-                    >{{ cell.displayNum }}{{ cell.isWhite ? '.' : '...' }}</span
-                  >
-                  <span class="move-san-text">{{ cell.node.san }}</span>
-                  <span
-                    v-if="cell.node.note"
-                    class="note-indicator"
-                    title="Has note"
-                    >📝</span
-                  >
-                  <img
-                    v-if="cell.node.accuracy"
-                    :src="accuracySymbol(cell.node.accuracy)"
-                    class="acc-badge"
-                    :class="cell.node.accuracy"
-                  />
-                </template>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <!-- ============ REPORT (teleported to body when maximized) ============ -->
-        <Teleport
-          to="body"
-          :disabled="!isReportMaximized"
-          v-else-if="activeTab === 'report'"
-        >
-          <div class="report" :class="{ maximized: isReportMaximized }">
-            <div class="report-header">
-              <h3 class="report-title">Game Report</h3>
-              <div class="report-header-actions">
-                <!-- ✦ NEW: Start Review button in the maximized report -->
-                <button
-                  v-if="isReportMaximized"
-                  class="start-review-btn"
-                  @click="startReview"
-                  title="Close report and browse moves"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="16"
-                    height="16"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.4"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                  Start Review
-                </button>
-                <button
-                  class="report-expand-btn"
-                  @click="toggleReportMaximize"
-                  :title="isReportMaximized ? 'Minimize report (Esc)' : 'Maximize report'"
-                >
-                  <svg
-                    v-if="!isReportMaximized"
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                  </svg>
-                  <svg
-                    v-else
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div class="report-columns">
-              <div class="report-col">
-                <div class="report-side-header">
-                  <span class="side-swatch white-swatch"></span>
-                  <span>White</span>
-                </div>
-                <div class="accuracy-score" v-if="gameReportStats.white.accuracy !== null">
-                  {{ gameReportStats.white.accuracy.toFixed(1) }}
-                  <span class="accuracy-percent">%</span>
-                </div>
-                <div class="accuracy-score empty" v-else>—</div>
-                <div class="est-rating" v-if="estimatedRatings.white !== null">
-                  <span class="est-rating-label">Est. Rating</span>
-                  <span class="est-rating-value">{{ estimatedRatings.white }}</span>
-                </div>
-                <div class="est-rating empty" v-else>
-                  <span class="est-rating-label">Est. Rating</span>
-                  <span class="est-rating-value">—</span>
-                </div>
                 <div
-                  v-for="key in classificationOrder"
-                  :key="'w-' + key"
-                  class="report-row"
-                  :class="{
-                    dim: gameReportStats.white.counts[key] === 0,
-                    clickable: gameReportStats.white.counts[key] > 0
-                  }"
-                  @click="jumpToClassification('white', key)"
+                  v-for="(cell, index) in row.cells"
+                  :key="cell ? cell.key : `${row.key}-empty-${index}`"
+                  class="move-cell"
+                  :class="[{ active: cell && cell.node === currentNode, variant: cell && cell.variant }, { empty: !cell }]"
+                  @click="cell && handleCellClick(cell.node.id)"
+                  @dblclick="cell && openNoteEditor(cell.node.id)"
+                  @contextmenu.prevent="cell && openContextMenu($event, cell.node.id)"
+                  @touchstart="cell && handleTouchStart($event, cell.node.id)"
+                  @touchend="cancelLongPress"
+                  @touchmove="cancelLongPress"
                 >
-                  <img :src="accuracySymbol(key)" class="report-row-icon" />
-                  <span class="report-row-label" :style="{ color: classificationMeta[key].color }">
-                    {{ classificationMeta[key].label }}
-                  </span>
-                  <span class="report-row-count">{{ gameReportStats.white.counts[key] }}</span>
-                </div>
-              </div>
-              <div class="report-col">
-                <div class="report-side-header">
-                  <span class="side-swatch black-swatch"></span>
-                  <span>Black</span>
-                </div>
-                <div class="accuracy-score" v-if="gameReportStats.black.accuracy !== null">
-                  {{ gameReportStats.black.accuracy.toFixed(1) }}
-                  <span class="accuracy-percent">%</span>
-                </div>
-                <div class="accuracy-score empty" v-else>—</div>
-                <div class="est-rating" v-if="estimatedRatings.black !== null">
-                  <span class="est-rating-label">Est. Rating</span>
-                  <span class="est-rating-value">{{ estimatedRatings.black }}</span>
-                </div>
-                <div class="est-rating empty" v-else>
-                  <span class="est-rating-label">Est. Rating</span>
-                  <span class="est-rating-value">—</span>
-                </div>
-                <div
-                  v-for="key in classificationOrder"
-                  :key="'b-' + key"
-                  class="report-row"
-                  :class="{
-                    dim: gameReportStats.black.counts[key] === 0,
-                    clickable: gameReportStats.black.counts[key] > 0
-                  }"
-                  @click="jumpToClassification('black', key)"
-                >
-                  <img :src="accuracySymbol(key)" class="report-row-icon" />
-                  <span class="report-row-label" :style="{ color: classificationMeta[key].color }">
-                    {{ classificationMeta[key].label }}
-                  </span>
-                  <span class="report-row-count">{{ gameReportStats.black.counts[key] }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="eval-graph-card" v-if="evalGraphGeom">
-              <div class="eval-graph-head">
-                <span class="eval-graph-title">Evaluation Graph</span>
-                <span class="eval-graph-hint">Hover to inspect · Click to jump to a move</span>
-              </div>
-              <div
-                class="eval-graph-area"
-                @click="evalGraphClick"
-                @mousemove="evalGraphHover"
-                @mouseleave="graphHoverIdx = -1"
-              >
-                <svg class="eval-graph-svg" viewBox="0 0 1000 300" preserveAspectRatio="none">
-                  <path :d="evalGraphGeom.blackArea" class="eg-black" />
-                  <path :d="evalGraphGeom.whiteArea" class="eg-white" />
-                  <line x1="0" y1="150" x2="1000" y2="150" class="eg-center" />
-                </svg>
-                <div
-                  v-if="evalGraphGeom.currentIdx >= 0"
-                  class="eg-current"
-                  :style="{ left: evalGraphGeom.coords[evalGraphGeom.currentIdx].xPct + '%' }"
-                ></div>
-                <template v-if="graphHoverData">
-                  <div class="eg-hover-line" :style="{ left: graphHoverData.pt.xPct + '%' }"></div>
-                  <div
-                    class="eg-hover-dot"
-                    :class="graphHoverData.pt.accuracy || 'plain'"
-                    :style="{ left: graphHoverData.pt.xPct + '%', top: graphHoverData.pt.yPct + '%' }"
-                  ></div>
-                  <div
-                    class="eg-tooltip"
-                    :class="{ below: graphHoverData.below }"
-                    :style="{ left: graphHoverData.leftPct + '%' }"
-                  >
-                    <span class="eg-tooltip-move">{{ graphHoverData.label }}{{ graphHoverData.san ? ' ' + graphHoverData.san : '' }}</span>
-                    <span class="eg-tooltip-eval">{{ graphHoverData.evalText }}</span>
-                    <span
-                      v-if="graphHoverData.accLabel"
-                      class="eg-tooltip-acc"
-                      :style="{ color: graphHoverData.accColor }"
-                      >{{ graphHoverData.accLabel }}</span
+                  <template v-if="cell">
+                    <span v-if="cell.showNum" class="move-num"
+                      >{{ cell.displayNum }}{{ cell.isWhite ? '.' : '...' }}</span
                     >
-                  </div>
-                </template>
-                <span
-                  v-for="pt in evalGraphGeom.coords.filter(c => c.accuracy)"
-                  :key="'eg-' + pt.ply"
-                  class="eg-dot"
-                  :class="[pt.accuracy, { current: pt.nodeId === currentNode.id }]"
-                  :style="{ left: pt.xPct + '%', top: pt.yPct + '%' }"
-                  @click.stop="jumpToNode(pt.nodeId)"
-                ></span>
-              </div>
-            </div>
-
-            <!-- ===== MAXIMIZED-ONLY SECTIONS ===== -->
-            <template v-if="isReportMaximized">
-              <div class="report-max-grid">
-                <div class="report-card">
-                  <h4 class="report-card-title">Move Classification</h4>
-                  <div v-for="bar in reportBars" :key="bar.side" class="report-bar-block">
-                    <div class="report-bar-label">
-                      <span class="side-swatch" :class="bar.side + '-swatch'"></span>
-                      {{ bar.side === 'white' ? 'White' : 'Black' }}
-                      <span class="report-bar-total">{{ bar.total }} moves</span>
-                    </div>
-                    <div class="report-bar">
-                      <div
-                        v-for="seg in bar.segments"
-                        :key="seg.key"
-                        class="report-bar-seg"
-                        :style="{ width: seg.percent + '%', background: seg.meta.color }"
-                        :title="`${seg.meta.label}: ${seg.count}`"
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="report-card" v-if="gameExtendedStats">
-                  <h4 class="report-card-title">Accuracy by Phase</h4>
-                  <div class="phase-rows">
-                    <div v-for="phase in ['opening', 'middlegame', 'endgame']" :key="phase" class="phase-row">
-                      <span class="phase-row-name">{{ phase.charAt(0).toUpperCase() + phase.slice(1) }}</span>
-                      <div class="phase-row-vals">
-                        <span class="phase-val-chip" :style="{ color: accColorForWeight(gameExtendedStats.white.phases[phase]) }">
-                          <span class="color-indicator white"></span>
-                          {{ fmtAcc(gameExtendedStats.white.phases[phase]) }}
-                        </span>
-                        <span class="phase-val-chip" :style="{ color: accColorForWeight(gameExtendedStats.black.phases[phase]) }">
-                          <span class="color-indicator black"></span>
-                          {{ fmtAcc(gameExtendedStats.black.phases[phase]) }}
-                        </span>
-                      </div>
-                      <div class="phase-row-bars">
-                        <div class="phase-mini-bar">
-                          <div :style="{ width: (gameExtendedStats.white.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.white.phases[phase]) }"></div>
-                        </div>
-                        <div class="phase-mini-bar">
-                          <div :style="{ width: (gameExtendedStats.black.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.black.phases[phase]) }"></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <p class="report-card-note">Top bar / value = White · Bottom = Black</p>
-                </div>
-
-                <div class="report-card" v-if="gameExtendedStats">
-                  <h4 class="report-card-title">Accuracy by Move Number</h4>
-                  <div class="bucket-rows">
-                    <div v-for="label in moveBucketOrderLocal" :key="label" class="bucket-row">
-                      <span class="bucket-row-label">{{ label }}</span>
-                      <span
-                        class="bucket-row-val"
-                        :style="{ color: accColorForWeight(gameExtendedStats.white.buckets.find(b => b.label === label)?.acc ?? null) }"
-                      >
-                        {{ fmtAcc(gameExtendedStats.white.buckets.find(b => b.label === label)?.acc) }}
-                      </span>
-                      <span
-                        class="bucket-row-val"
-                        :style="{ color: accColorForWeight(gameExtendedStats.black.buckets.find(b => b.label === label)?.acc ?? null) }"
-                      >
-                        {{ fmtAcc(gameExtendedStats.black.buckets.find(b => b.label === label)?.acc) }}
-                      </span>
-                    </div>
-                  </div>
-                  <div class="bucket-legend">
-                    <span class="side-swatch white-swatch"></span> White
-                    <span class="side-swatch black-swatch"></span> Black
-                  </div>
-                </div>
-
-                <div class="report-card" v-if="gameExtendedStats">
-                  <h4 class="report-card-title">Game Stats</h4>
-                  <div class="gstats-table">
-                    <div class="gstats-head">
-                      <span></span><span>White</span><span>Black</span>
-                    </div>
-                    <div class="gstats-row">
-                      <span>Checks</span><span>{{ gameExtendedStats.white.checks }}</span><span>{{ gameExtendedStats.black.checks }}</span>
-                    </div>
-                    <div class="gstats-row">
-                      <span>Captures</span><span>{{ gameExtendedStats.white.captures }}</span><span>{{ gameExtendedStats.black.captures }}</span>
-                    </div>
-                    <div class="gstats-row">
-                      <span>Pawns lost (eval)</span><span>{{ gameExtendedStats.white.cpLost }}</span><span>{{ gameExtendedStats.black.cpLost }}</span>
-                    </div>
-                    <div class="gstats-row">
-                      <span>Swings gained</span><span>{{ gameExtendedStats.white.swingsGained }}</span><span>{{ gameExtendedStats.black.swingsGained }}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="report-card" v-if="gamePieceStats.some(p => p.white.count || p.black.count)">
-                  <h4 class="report-card-title">Accuracy by Piece</h4>
-                  <div class="gstats-table">
-                    <div class="gstats-head">
-                      <span></span><span>White</span><span>Black</span>
-                    </div>
-                    <div v-for="p in gamePieceStats" :key="p.key" class="gstats-row piece-row">
-                      <span class="piece-cell">
-                        <span class="piece-sym">{{ p.symbol }}</span>
-                        {{ p.label }}
-                        <span class="piece-counts">({{ p.white.count }}/{{ p.black.count }})</span>
-                      </span>
-                      <span :style="{ color: accColorForWeight(p.white.acc) }">{{ fmtAcc(p.white.acc) }}</span>
-                      <span :style="{ color: accColorForWeight(p.black.acc) }">{{ fmtAcc(p.black.acc) }}</span>
-                    </div>
-                  </div>
-                  <p class="report-card-note">Move counts per side shown as (White/Black)</p>
-                </div>
-
-                <div class="report-card" v-if="keyMoments.length">
-                  <h4 class="report-card-title">Key Moments</h4>
-                  <div class="moments-list">
-                    <button v-for="m in keyMoments" :key="'km-' + m.nodeId" class="moment-row" @click="jumpToMoment(m)">
-                      <span class="moment-side" :class="m.side"></span>
-                      <span class="moment-san">{{ Math.ceil(m.ply / 2) }}{{ m.ply % 2 === 1 ? '.' : '...' }} {{ m.san }}</span>
-                      <img v-if="accuracySymbol(m.accuracy)" :src="accuracySymbol(m.accuracy)" class="moment-icon" />
-                      <span class="moment-swing">{{ (m.swing / 100).toFixed(1) }} cp swing</span>
-                    </button>
-                  </div>
-                  <p class="report-card-note">Click a moment to jump to it on the board</p>
+                    <span class="move-san-text">{{ prettyMove(cell.node.san) }}</span>
+                    <span
+                      v-if="cell.node.note"
+                      class="note-indicator"
+                      title="Has note"
+                      >📝</span
+                    >
+                    <img
+                      v-if="cell.node.accuracy"
+                      :src="accuracySymbol(cell.node.accuracy)"
+                      class="acc-badge"
+                      :class="cell.node.accuracy"
+                    />
+                  </template>
                 </div>
               </div>
             </template>
           </div>
-        </Teleport>
 
-        <div class="explorer" v-else-if="activeTab === 'explorer'">
-          <div class="explorer-db-toggle">
-            <button :class="{ active: explorerDb === 'masters' }" @click="explorerDb = 'masters'">Masters</button>
-            <button :class="{ active: explorerDb === 'lichess' }" @click="explorerDb = 'lichess'">Players</button>
-          </div>
-          <div v-if="explorerLoading" class="explorer-status">
-            <div class="mini-spinner"></div>
-            Loading {{ explorerDb === 'masters' ? 'master' : 'player' }} games…
-          </div>
-          <div v-else-if="explorerError" class="explorer-status error">{{ explorerError }}</div>
-          <template v-else>
-            <div class="explorer-header">
-              <span class="explorer-eco" v-if="openingEco">{{ openingEco }}</span>
-              <span class="explorer-name">{{ opening }}</span>
-            </div>
-            <div class="explorer-table" v-if="explorerMoves.length">
-              <div class="explorer-row explorer-row-head">
-                <span class="col-move">Move</span>
-                <span class="col-games">Games</span>
-                <span class="col-split">W / D / B</span>
+          <!-- ============ REPORT (teleported to body when maximized) ============ -->
+          <Teleport
+            to="body"
+            :disabled="!isReportMaximized"
+            v-else-if="activeTab === 'report'"
+          >
+            <div class="report" :class="{ maximized: isReportMaximized }">
+              <div class="report-header">
+                <h3 class="report-title">Game Report</h3>
+                <div class="report-header-actions">
+                  <button
+                    v-if="isReportMaximized"
+                    class="start-review-btn"
+                    @click="startReview"
+                    title="Close report and browse moves"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                    Start Review
+                  </button>
+                  <button
+                    class="report-expand-btn"
+                    @click="toggleReportMaximize"
+                    :title="isReportMaximized ? 'Minimize report (Esc)' : 'Maximize report'"
+                  >
+                    <svg
+                      v-if="!isReportMaximized"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                    </svg>
+                    <svg
+                      v-else
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <div v-for="m in explorerMoves" :key="m.uci" class="explorer-row" @click="playExplorerMove(m.uci)">
-                <span class="col-move">{{ prettyMove(m.san) }}</span>
-                <span class="col-games">
-                  <span class="games-percent">{{ m.percent }}%</span>
-                  <span class="games-count">{{ formatCount(m.total) }}</span>
-                </span>
-                <span class="col-split">
-                  <div class="split-bar">
-                    <div class="split-white" :style="{ width: m.white + '%' }">
-                      <span v-if="m.white >= 15" class="split-pct">{{ m.white }}%</span>
+
+              <!-- Score boxes -->
+              <div class="score-row">
+                <div v-for="side in ['white', 'black']" :key="side" class="score-box" :class="side">
+                  <span class="score-num">
+                    {{ gameReportStats[side].accuracy !== null ? gameReportStats[side].accuracy.toFixed(1) + '%' : '—' }}
+                  </span>
+                  <span class="score-rating">{{ estimatedRatings[side] ?? '—' }}</span>
+                </div>
+              </div>
+
+              <!-- Move table -->
+              <div class="cls-table">
+                <div class="cls-head">
+                  <span></span>
+                  <span class="cls-name">{{ whiteName }}</span>
+                  <span></span>
+                  <span class="cls-name">{{ blackName }}</span>
+                </div>
+
+                <div v-for="key in classificationOrder" :key="key" class="cls-line">
+                  <span class="cls-label" :style="{ color: classificationMeta[key].color }">
+                    {{ classificationMeta[key].label }}
+                  </span>
+                  <span
+                    class="cls-num"
+                    :class="{ dim: gameReportStats.white.counts[key] === 0 }"
+                    :style="{ color: classificationMeta[key].color }"
+                    @click="jumpToClassification('white', key)"
+                  >{{ gameReportStats.white.counts[key] }}</span>
+                  <img :src="accuracySymbol(key)" class="cls-icon" />
+                  <span
+                    class="cls-num"
+                    :class="{ dim: gameReportStats.black.counts[key] === 0 }"
+                    :style="{ color: classificationMeta[key].color }"
+                    @click="jumpToClassification('black', key)"
+                  >{{ gameReportStats.black.counts[key] }}</span>
+                </div>
+              </div>
+
+              <!-- Eval graph -->
+              <div class="eval-graph-card" v-if="evalGraphGeom">
+                <div
+                  class="eval-graph-area"
+                  @click="evalGraphClick"
+                  @mousemove="evalGraphHover"
+                  @mouseleave="graphHoverIdx = -1"
+                >
+                  <svg class="eval-graph-svg" viewBox="0 0 1000 300" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="egWhiteGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#fbf8ef" />
+                        <stop offset="1" stop-color="#ddd8c8" />
+                      </linearGradient>
+                      <linearGradient id="egBlackGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#1c1b18" />
+                        <stop offset="1" stop-color="#3f3d37" />
+                      </linearGradient>
+                    </defs>
+                    <path :d="evalGraphGeom.blackArea" fill="url(#egBlackGrad)" />
+                    <path :d="evalGraphGeom.whiteArea" fill="url(#egWhiteGrad)" />
+                    <line x1="0" y1="75" x2="1000" y2="75" class="eg-grid" />
+                    <line x1="0" y1="225" x2="1000" y2="225" class="eg-grid" />
+                    <line x1="0" y1="150" x2="1000" y2="150" class="eg-center" />
+                    <path :d="evalGraphGeom.line" class="eg-line" fill="none" />
+                  </svg>
+                  <div
+                    v-if="evalGraphGeom.currentIdx >= 0"
+                    class="eg-current"
+                    :style="{ left: evalGraphGeom.coords[evalGraphGeom.currentIdx].xPct + '%' }"
+                  ></div>
+                  <template v-if="graphHoverData">
+                    <div class="eg-hover-line" :style="{ left: graphHoverData.pt.xPct + '%' }"></div>
+                    <div
+                      class="eg-hover-dot"
+                      :class="graphHoverData.pt.accuracy || 'plain'"
+                      :style="{ left: graphHoverData.pt.xPct + '%', top: graphHoverData.pt.yPct + '%' }"
+                    ></div>
+                    <div
+                      class="eg-tooltip"
+                      :class="{ below: graphHoverData.below }"
+                      :style="{ left: graphHoverData.leftPct + '%' }"
+                    >
+                      <span class="eg-tooltip-move">{{ graphHoverData.label }}{{ graphHoverData.san ? ' ' + graphHoverData.san : '' }}</span>
+                      <span class="eg-tooltip-eval">{{ graphHoverData.evalText }}</span>
+                      <span
+                        v-if="graphHoverData.accLabel"
+                        class="eg-tooltip-acc"
+                        :style="{ color: graphHoverData.accColor }"
+                        >{{ graphHoverData.accLabel }}</span
+                      >
                     </div>
-                    <div class="split-draw" :style="{ width: m.draws + '%' }">
-                      <span v-if="m.draws >= 15" class="split-pct">{{ m.draws }}%</span>
+                  </template>
+                  <span
+                    v-for="pt in evalGraphGeom.coords.filter(c => ['brilliant','great','inaccuracy','mistake','blunder'].includes(c.accuracy))"
+                    :key="'eg-' + pt.ply"
+                    class="eg-dot"
+                    :class="[pt.accuracy, { current: pt.nodeId === currentNode.id }]"
+                    :style="{ left: pt.xPct + '%', top: pt.yPct + '%' }"
+                    @click.stop="jumpToNode(pt.nodeId)"
+                  ></span>
+                </div>
+              </div>
+
+              <!-- ===== MAXIMIZED-ONLY CARDS ===== -->
+              <template v-if="isReportMaximized">
+                <div class="report-max-grid">
+
+                  <!-- Accuracy by Phase -->
+                  <div class="report-card" v-if="gameExtendedStats">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Accuracy by Phase</h4>
+                      <div class="rc-legend">
+                        <span class="rc-legend-item"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                        <span class="rc-legend-item"><span class="side-swatch black-swatch"></span>{{ blackName }}</span>
+                      </div>
                     </div>
-                    <div class="split-black" :style="{ width: m.black + '%' }">
-                      <span v-if="m.black >= 15" class="split-pct">{{ m.black }}%</span>
+                    <div class="phase-list">
+                      <div v-for="phase in ['opening', 'middlegame', 'endgame']" :key="phase" class="phase-item">
+                        <span class="phase-name">{{ phase }}</span>
+                        <div class="phase-line">
+                          <span class="side-swatch white-swatch"></span>
+                          <div class="phase-bar">
+                            <div :style="{ width: (gameExtendedStats.white.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.white.phases[phase]) }"></div>
+                          </div>
+                          <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.white.phases[phase]) }">{{ fmtAcc(gameExtendedStats.white.phases[phase]) }}</span>
+                        </div>
+                        <div class="phase-line">
+                          <span class="side-swatch black-swatch"></span>
+                          <div class="phase-bar">
+                            <div :style="{ width: (gameExtendedStats.black.phases[phase] || 0) + '%', background: accColorForWeight(gameExtendedStats.black.phases[phase]) }"></div>
+                          </div>
+                          <span class="phase-val" :style="{ color: accColorForWeight(gameExtendedStats.black.phases[phase]) }">{{ fmtAcc(gameExtendedStats.black.phases[phase]) }}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </span>
-              </div>
-              <div class="explorer-row explorer-row-total" v-if="explorerStats">
-                <span class="col-move">Σ</span>
-                <span class="col-games">
-                  <span class="games-percent">100%</span>
-                  <span class="games-count">{{ formatCount(explorerStats.total) }}</span>
-                </span>
-                <span class="col-split">
-                  <div class="split-bar">
-                    <div class="split-white" :style="{ width: explorerStats.white + '%' }">
-                      <span v-if="explorerStats.white >= 15" class="split-pct">{{ explorerStats.white }}%</span>
+
+                  <!-- Game Stats -->
+                  <div class="report-card" v-if="gameExtendedStats">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Game Stats</h4>
                     </div>
-                    <div class="split-draw" :style="{ width: explorerStats.draws + '%' }">
-                      <span v-if="explorerStats.draws >= 15" class="split-pct">{{ explorerStats.draws }}%</span>
-                    </div>
-                    <div class="split-black" :style="{ width: explorerStats.black + '%' }">
-                      <span v-if="explorerStats.black >= 15" class="split-pct">{{ explorerStats.black }}%</span>
+                    <div class="stat-table">
+                      <div class="stat-row stat-head">
+                        <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                        <span></span>
+                        <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.checks }}</span>
+                        <span class="stat-label">Checks</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.checks }}</span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.captures }}</span>
+                        <span class="stat-label">Captures</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.captures }}</span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.cpLost }}</span>
+                        <span class="stat-label">Pawns lost</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.cpLost }}</span>
+                      </div>
+                      <div class="stat-row">
+                        <span class="stat-val">{{ gameExtendedStats.white.swingsGained }}</span>
+                        <span class="stat-label">Swings gained</span>
+                        <span class="stat-val right">{{ gameExtendedStats.black.swingsGained }}</span>
+                      </div>
                     </div>
                   </div>
-                </span>
-              </div>
+
+                  <!-- Accuracy by Piece -->
+                  <div class="report-card" v-if="gamePieceStats.some(p => p.white.count || p.black.count)">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Accuracy by Piece</h4>
+                    </div>
+                    <div class="stat-table">
+                      <div class="stat-row stat-head">
+                        <span class="stat-name"><span class="side-swatch white-swatch"></span>{{ whiteName }}</span>
+                        <span></span>
+                        <span class="stat-name right">{{ blackName }}<span class="side-swatch black-swatch"></span></span>
+                      </div>
+                      <div v-for="p in gamePieceStats" :key="p.key" class="stat-row">
+                        <span class="stat-val" :style="{ color: accColorForWeight(p.white.acc) }">{{ fmtAcc(p.white.acc) }}</span>
+                        <span class="stat-label">
+                          <span class="piece-sym">{{ p.symbol }}</span>{{ p.label }}
+                          <span class="piece-counts">{{ p.white.count }}/{{ p.black.count }}</span>
+                        </span>
+                        <span class="stat-val right" :style="{ color: accColorForWeight(p.black.acc) }">{{ fmtAcc(p.black.acc) }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Key Moments -->
+                  <div class="report-card" v-if="keyMoments.length">
+                    <div class="rc-head">
+                      <h4 class="rc-title">Key Moments</h4>
+                      <span class="rc-sub">Tap to jump</span>
+                    </div>
+                    <div class="moments-list">
+                      <button v-for="m in keyMoments" :key="'km-' + m.nodeId" class="moment-row" @click="jumpToMoment(m)">
+                        <span class="moment-side" :class="m.side"></span>
+                        <span class="moment-san">{{ Math.ceil(m.ply / 2) }}{{ m.ply % 2 === 1 ? '.' : '...' }} {{ m.san }}</span>
+                        <img v-if="accuracySymbol(m.accuracy)" :src="accuracySymbol(m.accuracy)" class="moment-icon" />
+                        <span class="moment-swing">{{ (m.swing / 100).toFixed(1) }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              </template>
             </div>
-            <div class="explorer-status" v-else>No games found for this position</div>
-          </template>
+          </Teleport>
+
+          <div class="explorer" v-else-if="activeTab === 'explorer'">
+            <div class="explorer-db-toggle">
+              <button :class="{ active: explorerDb === 'masters' }" @click="explorerDb = 'masters'">Masters</button>
+              <button :class="{ active: explorerDb === 'lichess' }" @click="explorerDb = 'lichess'">Players</button>
+            </div>
+            <div v-if="explorerLoading" class="explorer-status">
+              <div class="mini-spinner"></div>
+              Loading {{ explorerDb === 'masters' ? 'master' : 'player' }} games…
+            </div>
+            <div v-else-if="explorerError" class="explorer-status error">{{ explorerError }}</div>
+            <template v-else>
+              <div class="explorer-header">
+                <span class="explorer-eco" v-if="openingEco">{{ openingEco }}</span>
+                <span class="explorer-name">{{ opening }}</span>
+              </div>
+              <div class="explorer-table" v-if="explorerMoves.length">
+                <div class="explorer-row explorer-row-head">
+                  <span class="col-move">Move</span>
+                  <span class="col-games">Games</span>
+                  <span class="col-split">W / D / B</span>
+                </div>
+                <div v-for="m in explorerMoves" :key="m.uci" class="explorer-row" @click="playExplorerMove(m.uci)">
+                  <span class="col-move">{{ prettyMove(m.san) }}</span>
+                  <span class="col-games">
+                    <span class="games-percent">{{ m.percent }}%</span>
+                    <span class="games-count">{{ formatCount(m.total) }}</span>
+                  </span>
+                  <span class="col-split">
+                    <div class="split-bar">
+                      <div class="split-white" :style="{ width: m.white + '%' }">
+                        <span v-if="m.white >= 15" class="split-pct">{{ m.white }}%</span>
+                      </div>
+                      <div class="split-draw" :style="{ width: m.draws + '%' }">
+                        <span v-if="m.draws >= 15" class="split-pct">{{ m.draws }}%</span>
+                      </div>
+                      <div class="split-black" :style="{ width: m.black + '%' }">
+                        <span v-if="m.black >= 15" class="split-pct">{{ m.black }}%</span>
+                      </div>
+                    </div>
+                  </span>
+                </div>
+                <div class="explorer-row explorer-row-total" v-if="explorerStats">
+                  <span class="col-move">Σ</span>
+                  <span class="col-games">
+                    <span class="games-percent">100%</span>
+                    <span class="games-count">{{ formatCount(explorerStats.total) }}</span>
+                  </span>
+                  <span class="col-split">
+                    <div class="split-bar">
+                      <div class="split-white" :style="{ width: explorerStats.white + '%' }">
+                        <span v-if="explorerStats.white >= 15" class="split-pct">{{ explorerStats.white }}%</span>
+                      </div>
+                      <div class="split-draw" :style="{ width: explorerStats.draws + '%' }">
+                        <span v-if="explorerStats.draws >= 15" class="split-pct">{{ explorerStats.draws }}%</span>
+                      </div>
+                      <div class="split-black" :style="{ width: explorerStats.black + '%' }">
+                        <span v-if="explorerStats.black >= 15" class="split-pct">{{ explorerStats.black }}%</span>
+                      </div>
+                    </div>
+                  </span>
+                </div>
+              </div>
+              <div class="explorer-status" v-else>No games found for this position</div>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -2827,6 +3015,28 @@
     display: block;
   }
 
+  /* Best move arrow: our own layer, so the user's arrows are never touched */
+  .best-arrow {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  .best-arrow line {
+    stroke: #15781b;
+    stroke-width: 0.17;
+    stroke-linecap: round;
+    opacity: 0.85;
+  }
+
+  .best-arrow polygon {
+    fill: #15781b;
+    opacity: 0.85;
+  }
+
   :deep(.cg-wrap) {
     overflow: hidden;
     width: 100% !important;
@@ -2856,9 +3066,6 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* ✦ FIXED: touch-action: none on ALL board elements so pieces can be
-     dragged freely in any direction. Previously pan-y on the board was
-     stealing vertical drags before the piece could capture them. */
   :deep(.cg-wrap),
   :deep(cg-container),
   :deep(cg-board),
@@ -3345,71 +3552,67 @@
     width: 100%;
     max-width: 500px;
     box-shadow: 0 15px 35px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    overflow-y: auto;
-    overflow-x: hidden;
+    display: flex;
+    overflow: hidden;
     box-sizing: border-box;
     border: 1px solid rgba(255, 255, 255, 0.08);
     margin: 0 auto;
     min-height: 340px;
     flex: 1 1 auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(194, 197, 170, 0.4) rgba(0, 0, 0, 0.2);
-    overscroll-behavior: contain;
   }
 
   @media (min-width: 1200px) {
     .moves { max-width: 20rem; }
   }
 
-  .tabs-toggle {
-    position: sticky;
-    top: 0;
-    z-index: 30;
+  /* Thin vertical icon rail: replaces the old tab bar and saves height */
+  .tabs-rail {
     display: flex;
+    flex-direction: column;
     gap: 4px;
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    padding: 10px 10px 9px;
-    margin: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+    padding: 6px 4px;
+    flex-shrink: 0;
+    background: rgba(0, 0, 0, 0.15);
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
   }
 
-  .tabs-toggle button {
-    flex: 1;
-    background: transparent;
+  .tabs-rail button {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
     border: none;
-    color: rgba(245, 245, 220, 0.6);
-    padding: 0.55rem 0.4rem;
-    border-radius: 7px;
+    border-radius: 9px;
+    background: transparent;
+    color: rgba(245, 245, 220, 0.55);
     cursor: pointer;
-    font-weight: 700;
-    font-family: serif;
-    font-size: clamp(0.7rem, 2vw, 0.95rem);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    transition: all 0.2s ease;
     touch-action: manipulation;
+    transition: all 0.2s ease;
   }
 
-  .tabs-toggle button:hover:not(.active) {
-    color: rgba(245, 245, 220, 0.85);
-    background: rgba(255, 255, 255, 0.04);
+  .tabs-rail button:hover:not(.active) { color: #f5f5dc; background: rgba(255, 255, 255, 0.06); }
+
+  .tabs-rail button.active {
+    color: #a8d97a;
+    background: rgba(0, 0, 0, 0.3);
+    box-shadow: inset 0 0 0 1px rgba(168, 217, 122, 0.3);
   }
 
-  .tabs-toggle button.active {
-    background: rgba(0, 0, 0, 0.28);
-    color: #f4f0e3;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  .moves-body {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(194, 197, 170, 0.4) rgba(0, 0, 0, 0.2);
+    overscroll-behavior: contain;
   }
 
   .moveslist {
-    margin: 8px auto 0;
+    margin: 6px auto 6px;
     padding: 8px;
-    width: 100%;
+    width: calc(100% - 12px);
     box-sizing: border-box;
     background: linear-gradient(135deg, var(--list-1), var(--list-2));
     border-radius: 12px;
@@ -3512,22 +3715,23 @@
     letter-spacing: 0.2px;
   }
 
-  .acc-badge { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
+  .acc-badge { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
   .note-indicator { font-size: 0.62rem; opacity: 0.7; cursor: help; flex-shrink: 0; }
 
+  /* ===== BOARD TOOLS ======================================================= */
   .boardtools {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    min-height: 3.2rem;
     width: 100%;
     box-sizing: border-box;
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    border: 2px solid rgba(182, 173, 144, 0.4);
-    padding: 0.5rem 1rem;
-    border-radius: 10px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    margin: 0.4rem 0 0 0;
+    margin: 0.5rem 0 0;
+    padding: 0.45rem 0.6rem;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 16px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
   .boardtools-nav {
@@ -3535,44 +3739,66 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
+    gap: 0.25rem;
+    padding: 0.2rem;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 14px;
   }
 
   .boardtools-left { grid-column: 1; justify-self: start; }
   .share-menu-wrap { grid-column: 3; justify-self: end; position: relative; }
 
-  .toolbar-icon-btn {
-    display: flex;
+  .bt-btn {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--btn-idle);
-    width: clamp(30px, 6vw, 36px);
-    height: clamp(30px, 6vw, 36px);
     border: none;
-    border-radius: 12px;
-    font-size: clamp(14px, 3vw, 16px);
-    color: #e8e8d0;
+    border-radius: 11px;
+    background: transparent;
+    color: rgba(244, 240, 227, 0.8);
     cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
     flex-shrink: 0;
-    transition: all 0.2s ease;
+    width: 2.75rem;
+    height: 2.75rem;
+    touch-action: manipulation;
   }
 
-  .toolbar-icon-btn:hover {
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  .bt-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  .bt-btn:active:not(:disabled) { transform: scale(0.92); }
+  .bt-btn:disabled { opacity: 0.28; cursor: not-allowed; }
+  .bt-btn svg { display: block; }
+
+  .bt-ghost {
+    width: 2.25rem;
+    height: 2.25rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(244, 240, 227, 0.65);
+  }
+
+  .bt-accent {
+    background: linear-gradient(145deg, rgba(168, 217, 122, 0.22), rgba(106, 209, 63, 0.14));
+    color: #a8d97a;
+    box-shadow: inset 0 0 0 1px rgba(168, 217, 122, 0.25);
+  }
+
+  .bt-accent:hover:not(:disabled) {
+    background: linear-gradient(145deg, rgba(168, 217, 122, 0.32), rgba(106, 209, 63, 0.2));
+    color: #c4ee9c;
   }
 
   .share-menu {
     position: absolute;
-    bottom: 120%;
-    left: 0;
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    bottom: calc(100% + 8px);
+    right: 0;
+    left: auto;
+    background: #26241f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
-    min-width: 7.5rem;
+    min-width: 8rem;
     overflow: hidden;
     z-index: 50;
   }
@@ -3590,31 +3816,6 @@
 
   .share-menu button:hover { background: rgba(255, 255, 255, 0.08); }
   .share-menu button + button { border-top: 1px solid rgba(255, 255, 255, 0.08); }
-
-  .reverse, .undo, .redo, .jumpstart, .jumpend {
-    background-color: var(--btn-idle);
-    width: clamp(35px, 8vw, 40px);
-    height: clamp(35px, 8vw, 40px);
-    border: none;
-    border-radius: 15px;
-    font-size: clamp(16px, 4vw, 20px);
-    color: #e8e8d0;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .reverse svg { display: block; }
-  .reverse:disabled, .undo:disabled, .redo:disabled, .jumpstart:disabled, .jumpend:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .reverse:hover:not(:disabled), .undo:hover:not(:disabled), .redo:hover:not(:disabled),
-  .jumpstart:hover:not(:disabled), .jumpend:hover:not(:disabled) {
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-  }
 
   .evalnum {
     font-family: "JetBrains Mono", monospace;
@@ -3696,13 +3897,14 @@
 
   .board-acc-icon {
     position: absolute;
-    width: 4.5%;
-    height: 4.5%;
+    width: 5.5%;
+    height: 5.5%;
     border-radius: 50%;
     pointer-events: none;
   }
 
   .line-move { cursor: pointer; padding: 0 2px; border-radius: 4px; }
+  .line-num { color: rgba(234, 228, 216, 0.5); margin-right: 1px; }
   .line-move:hover { background: rgba(103, 122, 228, 0.3); }
 
   .toast {
@@ -3756,35 +3958,6 @@
     gap: 0.9rem;
   }
 
-  .report-columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-  }
-
-  .report-col {
-    min-width: 0;
-    background: linear-gradient(135deg, var(--list-1), var(--list-2));
-    border-radius: 14px;
-    padding: 0.8rem 0.5rem;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25);
-    box-sizing: border-box;
-  }
-
-  .report-side-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    font-family: serif;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    color: #f5f5dc;
-    font-size: 0.78rem;
-    margin-bottom: 0.5rem;
-  }
-
   .side-swatch {
     width: 0.65rem;
     height: 0.65rem;
@@ -3797,81 +3970,97 @@
   .white-swatch { background: #f4f0e3; }
   .black-swatch { background: #1a1a1a; }
 
-  .accuracy-score {
-    font-family: "JetBrains Mono", monospace;
-    font-size: clamp(1.2rem, 5vw, 1.7rem);
-    font-weight: 700;
-    color: #a8d97a;
-    text-align: center;
-    margin: 0.1rem 0 0.1rem;
+  /* Score boxes */
+  .score-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-radius: 12px;
+    overflow: hidden;
   }
 
-  .accuracy-score.empty { color: rgba(245, 245, 220, 0.4); font-size: 1.2rem; }
-  .accuracy-percent { font-size: 0.6em; opacity: 0.75; }
-
-  .est-rating {
+  .score-box {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin-bottom: 0.8rem;
-    padding-bottom: 0.6rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 0.1rem;
+    padding: 0.7rem 0.5rem;
   }
 
-  .est-rating-label {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: rgba(245, 245, 220, 0.5);
+  .score-box.white { background: #f4f0e3; color: #1a1a1a; }
+  .score-box.black { background: #141414; color: #f4f0e3; }
+
+  .score-num {
+    font-size: clamp(1.3rem, 5vw, 1.7rem);
     font-weight: 600;
-    margin-bottom: 0.2rem;
+    line-height: 1.1;
   }
 
-  .est-rating-value {
+  .score-rating {
     font-family: "JetBrains Mono", monospace;
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #a8d97a;
+    font-size: 0.68rem;
+    font-weight: 900;
+    opacity: 1;
   }
 
-  .est-rating.empty .est-rating-value { color: rgba(245, 245, 220, 0.4); }
-
-  .report-row {
+  /* Move table */
+  .cls-table {
     display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.3rem;
-    border-radius: 8px;
-    transition: background 0.15s ease;
-    min-width: 0;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.8rem 0.9rem;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
   }
 
-  .report-row:hover { background: rgba(0, 0, 0, 0.12); }
-  .report-row.dim { opacity: 0.35; }
-  .report-row.clickable { cursor: pointer; }
-  .report-row.clickable:hover { background: rgba(103, 122, 228, 0.18); }
-  .report-row-icon { width: 16px; height: 16px; flex-shrink: 0; }
+  .cls-head,
+  .cls-line {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 2rem 1fr;
+    align-items: center;
+    gap: 0.3rem;
+  }
 
-  .report-row-label {
-    flex: 1;
-    font-size: 0.76rem;
+  .cls-head { padding-bottom: 0.3rem; }
+
+  .cls-name {
+    text-align: center;
+    font-size: 0.78rem;
     font-weight: 600;
+    color: rgba(244, 240, 227, 0.85);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .report-row-count {
-    font-family: "JetBrains Mono", monospace;
-    font-weight: 700;
-    color: #f4f0e3;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 6px;
-    padding: 0.05rem 0.4rem;
-    font-size: 0.76rem;
-    min-width: 1.3rem;
+  .cls-line { padding: 0.3rem 0; }
+
+  .cls-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cls-num {
     text-align: center;
-    flex-shrink: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+  }
+
+  .cls-num:hover { background: rgba(103, 122, 228, 0.18); }
+  .cls-num.dim { opacity: 0.4; cursor: default; }
+  .cls-num.dim:hover { background: none; }
+
+  .cls-icon {
+    width: 22px;
+    height: 22px;
+    justify-self: center;
   }
 
   /* ===== REPORT HEADER / MAXIMIZE / START REVIEW ========================== */
@@ -3897,7 +4086,6 @@
     gap: 0.5rem;
   }
 
-  /* ✦ NEW: Start Review button — prominent green CTA in the maximized report */
   .start-review-btn {
     display: inline-flex;
     align-items: center;
@@ -3944,7 +4132,6 @@
 
   .report-expand-btn:hover { background: rgba(255, 255, 255, 0.1); color: #f4f0e3; }
 
-  /* ✦ CHANGED: maximized report now has blurred background backdrop */
   .report.maximized {
     position: fixed;
     inset: 0;
@@ -3982,14 +4169,20 @@
 
   .report.maximized .report-title { font-size: 1.15rem; }
 
-  .report.maximized .report-columns {
-    max-width: 760px;
+  .report.maximized .score-row,
+  .report.maximized .cls-table {
+    max-width: 560px;
     width: 100%;
     margin: 0 auto;
+    box-sizing: border-box;
   }
 
   .report.maximized .eval-graph-card { max-width: 960px; width: 100%; margin: 0 auto; }
   .report.maximized .eval-graph-area { height: 220px; }
+
+  .report.maximized > * {
+    flex-shrink: 0;
+  }
 
   .report-max-grid {
     display: grid;
@@ -4000,58 +4193,186 @@
     margin: 0 auto;
   }
 
+  /* ===== REPORT CARDS ===================================================== */
   .report-card {
-    background: linear-gradient(135deg, var(--list-1), var(--list-2));
-    border-radius: 14px;
-    padding: 1rem 1.1rem;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25);
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 18px;
+    padding: 1.1rem 1.2rem 1.2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem;
     min-width: 0;
   }
 
-  .report-card-title {
-    font-family: serif;
-    color: #f5f5dc;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 0.85rem;
-    margin: 0;
+  .rc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
-  .report-card-note {
+  .rc-title {
     margin: 0;
+    font-family: "Inter", sans-serif;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(245, 245, 220, 0.9);
+  }
+
+  .rc-sub { font-size: 0.7rem; color: rgba(244, 240, 227, 0.4); }
+
+  .rc-legend { display: flex; align-items: center; gap: 0.8rem; }
+  .rc-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     font-size: 0.7rem;
-    color: rgba(244, 240, 227, 0.45);
-    font-style: italic;
+    color: rgba(244, 240, 227, 0.6);
+    max-width: 7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Phase */
+  .phase-list { display: flex; flex-direction: column; gap: 1rem; }
+  .phase-item { display: flex; flex-direction: column; gap: 0.4rem; }
+  .phase-name {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    color: rgba(244, 240, 227, 0.55);
+  }
+  .phase-line {
+    display: grid;
+    grid-template-columns: 0.65rem 1fr 3.6rem;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .phase-bar {
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+  }
+  .phase-bar > div {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+  }
+  .phase-val {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  /* Stats + piece tables */
+  .stat-table { display: flex; flex-direction: column; gap: 0.3rem; }
+  .stat-row {
+    display: grid;
+    grid-template-columns: 4rem 1fr 4rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.035);
+  }
+  .stat-row.stat-head {
+    background: transparent;
+    padding-top: 0;
+    padding-bottom: 0.2rem;
+    grid-template-columns: 1fr 0.2rem 1fr;
+  }
+  .stat-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: rgba(244, 240, 227, 0.6);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stat-name.right { justify-content: flex-end; }
+  .stat-val {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #f4f0e3;
+  }
+  .stat-val.right { text-align: right; }
+  .stat-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    font-size: 0.74rem;
+    color: rgba(244, 240, 227, 0.55);
+    white-space: nowrap;
+  }
+  .piece-sym { font-size: 1rem; line-height: 1; }
+  .piece-counts {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.6rem;
+    color: rgba(244, 240, 227, 0.35);
+  }
+
+  /* Key moments */
+  .moments-list { display: flex; flex-direction: column; gap: 0.35rem; }
+
+  .moment-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    background: rgba(255, 255, 255, 0.035);
+    border: none;
+    border-radius: 10px;
+    color: #f4f0e3;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .moment-row:hover { background: rgba(103, 122, 228, 0.2); }
+
+  .moment-side { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .moment-side.white { background: #f4f0e3; }
+  .moment-side.black { background: #1a1a1a; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+
+  .moment-san {
+    font-weight: 700;
+    font-size: 0.85rem;
+    flex: 1;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .moment-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+  .moment-swing {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.7rem;
+    color: rgba(244, 240, 227, 0.55);
+    flex-shrink: 0;
   }
 
   /* ===== EVAL GRAPH ======================================================= */
   .eval-graph-card { display: flex; flex-direction: column; gap: 0.45rem; }
 
-  .eval-graph-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .eval-graph-title {
-    font-family: serif;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 0.8rem;
-    color: #f5f5dc;
-  }
-
-  .eval-graph-hint { font-size: 0.68rem; color: rgba(244, 240, 227, 0.45); }
-
   .eval-graph-area {
     position: relative;
     height: 110px;
-    border-radius: 10px;
+    border-radius: 14px;
     overflow: hidden;
     cursor: pointer;
     box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
@@ -4066,8 +4387,19 @@
 
   .eval-graph-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-  .eg-black { fill: #3a3833; }
-  .eg-white { fill: #f0ede6; }
+  .eg-line {
+    stroke: #a8d97a;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .eg-grid {
+    stroke: rgba(128, 126, 118, 0.3);
+    stroke-width: 1;
+    stroke-dasharray: 4 6;
+    vector-effect: non-scaling-stroke;
+  }
 
   .eg-center {
     stroke: rgba(120, 118, 110, 0.55);
@@ -4142,7 +4474,7 @@
     height: 9px;
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 1px 4px rgba(0, 0, 0, 0.4);
     cursor: pointer;
     z-index: 2;
     transition: box-shadow 0.15s ease;
@@ -4160,189 +4492,6 @@
   .eg-dot.inaccuracy, .eg-hover-dot.inaccuracy { background: #f2bc43; }
   .eg-dot.mistake, .eg-hover-dot.mistake { background: #f38800; }
   .eg-dot.blunder, .eg-hover-dot.blunder { background: #ff0000; }
-
-  /* ===== MAXIMIZED CARDS =================================================== */
-  .report-bar-block { display: flex; flex-direction: column; gap: 0.3rem; }
-
-  .report-bar-label {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: rgba(244, 240, 227, 0.85);
-    text-transform: capitalize;
-  }
-
-  .report-bar-total {
-    margin-left: auto;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.68rem;
-    color: rgba(244, 240, 227, 0.5);
-  }
-
-  .report-bar {
-    display: flex;
-    width: 100%;
-    height: 0.9rem;
-    border-radius: 6px;
-    overflow: hidden;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
-  }
-
-  .report-bar-seg { height: 100%; }
-
-  .phase-rows { display: flex; flex-direction: column; gap: 0.7rem; }
-
-  .phase-row {
-    display: grid;
-    grid-template-columns: 5.2rem 1fr;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .phase-row-name {
-    font-size: 0.78rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: rgba(244, 240, 227, 0.75);
-  }
-
-  .phase-row-vals { display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; }
-
-  .phase-val-chip {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.78rem;
-    font-weight: 700;
-    min-width: 3.4rem;
-    text-align: right;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-  }
-
-  .color-indicator {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 6px;
-    vertical-align: middle;
-    flex-shrink: 0;
-  }
-
-  .color-indicator.white { background: #f4f0e3; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3); }
-  .color-indicator.black { background: #1a1a1a; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
-
-  .phase-row-bars { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; }
-
-  .phase-mini-bar { height: 6px; background: rgba(0, 0, 0, 0.35); border-radius: 4px; overflow: hidden; }
-  .phase-mini-bar div { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
-
-  .bucket-rows { display: flex; flex-direction: column; gap: 0.35rem; }
-
-  .bucket-row {
-    display: grid;
-    grid-template-columns: 3.2rem 1fr 1fr;
-    gap: 0.5rem;
-    align-items: center;
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 8px;
-    padding: 0.3rem 0.5rem;
-  }
-
-  .bucket-row-label { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; color: rgba(244, 240, 227, 0.6); font-weight: 700; }
-  .bucket-row-val { font-family: "JetBrains Mono", monospace; font-size: 0.8rem; font-weight: 700; text-align: center; }
-  .bucket-legend { display: flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: rgba(244, 240, 227, 0.6); }
-  .bucket-legend .side-swatch { margin-left: 0.4rem; }
-
-  .gstats-table { display: flex; flex-direction: column; gap: 0.3rem; }
-
-  .gstats-head, .gstats-row {
-    display: grid;
-    grid-template-columns: 1fr 3.5rem 3.5rem;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .gstats-head {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: rgba(244, 240, 227, 0.55);
-    font-weight: 700;
-  }
-
-  .gstats-head span:not(:first-child), .gstats-row span:not(:first-child) {
-    text-align: right;
-    font-family: "JetBrains Mono", monospace;
-  }
-
-  .gstats-row {
-    font-size: 0.82rem;
-    color: rgba(244, 240, 227, 0.85);
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 8px;
-    padding: 0.32rem 0.5rem;
-  }
-
-  .gstats-row span:first-child { color: rgba(244, 240, 227, 0.7); }
-  .gstats-row.piece-row { grid-template-columns: 1fr 4.6rem 4.6rem; }
-
-  .piece-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-
-  .piece-sym { font-size: 1rem; line-height: 1; flex-shrink: 0; }
-  .piece-counts { font-family: "JetBrains Mono", monospace; font-size: 0.62rem; color: rgba(244, 240, 227, 0.45); }
-
-  .moments-list { display: flex; flex-direction: column; gap: 0.35rem; }
-
-  .moment-row {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    background: rgba(0, 0, 0, 0.12);
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 0.4rem 0.55rem;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    color: #f4f0e3;
-    width: 100%;
-  }
-
-  .moment-row:hover { background: rgba(103, 122, 228, 0.18); border-color: rgba(220, 228, 255, 0.35); }
-
-  .moment-side { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .moment-side.white { background: #f4f0e3; }
-  .moment-side.black { background: #1a1a1a; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
-
-  .moment-san {
-    font-weight: 700;
-    font-size: 0.85rem;
-    flex: 1;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .moment-icon { width: 18px; height: 18px; flex-shrink: 0; }
-
-  .moment-swing {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.7rem;
-    color: rgba(244, 240, 227, 0.55);
-    flex-shrink: 0;
-  }
 
   /* ===== NOTE EDITOR ====================================================== */
   .note-overlay {
@@ -4487,7 +4636,6 @@
   .explorer {
     padding: 0.6rem 0.5rem 0.6rem;
     box-sizing: border-box;
-    max-height: 400px;
   }
 
   .explorer-status {
@@ -4651,18 +4799,26 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
-  /* ===== ✦ MOBILE: STICKY TITLE + MINIMAL SCROLL =========================== */
+  /* ===== MOBILE: NO PAGE SCROLL ============================================ */
   @media (max-width: 767px) {
     .acc-badge { width: 19px; height: 19px; }
-    .board-acc-icon { width: 5.2%; height: 5.2%; }
-    .report-row-icon { width: 18px; height: 18px; }
+    .board-acc-icon { width: 6.1%; height: 6.1%; }
 
+    /* Lock the page to the screen. The moves panel takes whatever is left. */
     .grid-layout {
       display: flex;
       flex-direction: column;
-      min-height: 100dvh;
+      height: 100dvh;
+      overflow: hidden;
       padding: 0;
       gap: 0;
+    }
+
+    .report:not(.maximized) .report-header {
+      top: 0;
+      background: var(--panel-1);
+      margin: -0.4rem -0.6rem 0.4rem;
+      padding: 0.4rem 0.6rem;
     }
 
     .board-area,
@@ -4671,9 +4827,9 @@
       display: contents;
     }
 
-    /* ✦ sticky title at top */
     .title-slot {
       order: 0;
+      flex: 0 0 auto;
       position: sticky;
       top: 0;
       z-index: 50;
@@ -4684,51 +4840,55 @@
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
     }
 
-    .player-bar { order: 1; padding: 0.22rem 0.55rem; margin: 0; font-size: 0.78rem; }
+    .player-bar { order: 1; flex: 0 0 auto; padding: 0.22rem 0.55rem; margin: 0; font-size: 0.78rem; }
 
+    /* Board + thin eval bar: same row, no gap, bar is exactly the board's height */
     .board-row {
       order: 1;
-      flex-direction: column;
-      gap: 0.3rem;
+      flex: 0 0 auto;
+      flex-direction: row;
+      gap: 0;
+      align-items: stretch;
     }
 
-    .moves { order: 2; }
-
-    .analyze { order: 0; }
-
-    .boardtools { order: 4; }
-
-    .board-wrapper { max-width: 100%; }
+    /* Board is never taller than 42% of the screen (tune this number) */
+    .board-col {
+      flex: 0 0 auto;
+      width: min(calc(100% - 16px), 42dvh);
+    }
 
     .evalbar {
       order: -1;
-      width: 100%;
-      height: 1.45rem;
+      width: 16px;
+      height: auto;
       flex-shrink: 0;
     }
 
-    .evalbar-inner { flex-direction: row-reverse; border-radius: 8px; }
-    .evalbar.flipped .evalbar-inner { flex-direction: row-reverse; }
-
-    .blackeval, .whiteeval { height: 100%; width: auto; }
-    .blackeval { width: var(--eval, 50%); }
-    .whiteeval { width: calc(100% - var(--eval, 50%)); }
-
-    .evalnum {
-      top: 50%;
-      left: 0.4rem;
-      right: auto;
-      transform: translateY(-50%);
-      font-size: 0.7rem;
-      padding: 0.08rem 0.45rem;
+    .evalbar-inner {
+      flex: 1;
+      border-radius: 6px 0 0 6px;
     }
 
-    .player-bar { padding: 0.22rem 0.55rem; margin: 0; font-size: 0.78rem; }
-    .captured-pieces { padding-left: 0.3rem; }
-    .captured-piece { font-size: 0.72rem; }
-    .material-badge { font-size: 0.55rem; }
+    .evalnum { display: none; }
+
+    :deep(.cg-wrap) { border-radius: 0 6px 6px 0; }
+
+    /* Fills exactly the space that is left */
+    .moves {
+      order: 2;
+      flex: 1 1 0;
+      min-height: 130px;
+      max-height: none;
+      max-width: none;
+      margin: 0;
+      border-radius: 0;
+      border-left: none;
+      border-right: none;
+    }
 
     .analyze {
+      order: 0;
+      flex: 0 0 auto;
       background: none;
       box-shadow: none;
       border: none;
@@ -4739,6 +4899,14 @@
       max-height: none;
       overscroll-behavior: auto;
     }
+
+    .boardtools { order: 4; }
+
+    .board-wrapper { max-width: 100%; }
+
+    .captured-pieces { padding-left: 0.3rem; }
+    .captured-piece { font-size: 0.72rem; }
+    .material-badge { font-size: 0.55rem; }
 
     .move-data { padding: 0; }
 
@@ -4751,7 +4919,6 @@
       gap: 0.35rem;
     }
 
-    /* ✦ hide "ANALYSIS" title on mobile */
     .analyzis { display: none !important; }
     .analysis-title-row { min-height: 0; display: none !important; }
 
@@ -4798,23 +4965,14 @@
       50% { box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(106, 209, 63, 0.55); }
     }
 
-    /* shorter moves panel for minimal scrolling */
-    .moves {
-      flex: 0 1 auto;
-      min-height: 300px;
-      max-height: 300px;
-      height: auto;
-      max-width: none;
-      margin: 0;
-      overscroll-behavior: auto;
-    }
-
-    .tabs-toggle { padding: 7px; }
+    .tabs-rail { padding: 5px 3px; }
+    .tabs-rail button { width: 32px; height: 32px; }
 
     .moveslist {
       padding: 5px;
       gap: 3px;
-      margin-top: 5px;
+      margin: 4px auto;
+      width: calc(100% - 8px);
       overscroll-behavior: auto;
     }
 
@@ -4822,6 +4980,10 @@
       min-height: 2rem;
       padding: 0.28rem 0.55rem;
       font-size: 0.85rem;
+    }
+
+    .report-header {
+      position: sticky;
     }
 
     .report { padding: 0.6rem; }
@@ -4833,21 +4995,18 @@
 
     .eg-tooltip { font-size: 0.64rem; padding: 0.22rem 0.5rem; gap: 0.4rem; }
 
-    .report-col { padding: 0.55rem 0.4rem; }
-    .accuracy-score { margin: 0.2rem 0 0.4rem; }
-    .est-rating { margin-bottom: 0.5rem; padding-bottom: 0.4rem; }
-    .report-row { padding: 0.2rem 0.25rem; }
+    .cls-table { padding: 0.6rem 0.6rem; }
+    .cls-label { font-size: 0.82rem; }
+    .cls-line { padding: 0.22rem 0; }
 
-    /* ✦ Start Review button on mobile */
     .start-review-btn {
       padding: 0.42rem 0.75rem;
-      font-size: 0.7a2rem;
+      font-size: 0.72rem;
       gap: 0.3rem;
     }
 
     .explorer {
       padding: 0.4rem 0.5rem 0.6rem;
-      min-height: 220px;
     }
 
     .explorer-header { padding: 0.25rem 0.3rem 0.5rem; margin-bottom: 0.4rem; }
@@ -4873,6 +5032,7 @@
       position: sticky;
       bottom: 0;
       z-index: 40;
+      flex: 0 0 auto;
       min-height: 2.6rem;
       padding: 0.3rem 0.5rem calc(0.3rem + env(safe-area-inset-bottom, 0px));
       margin-top: 0;
@@ -4880,11 +5040,25 @@
       flex-wrap: nowrap;
     }
 
-    .boardtools-nav { gap: 1rem; justify-content: center; }
+    .boardtools {
+      grid-template-columns: auto 1fr auto;
+      gap: 0.5rem;
+    }
 
-    .shortcuts-panel, .note-editor {
-      width: min(92vw, 20rem);
-      padding: 1rem 1.1rem;
+    .boardtools-nav {
+      width: 100%;
+      gap: 0.2rem;
+    }
+
+    .boardtools-nav .bt-btn {
+      flex: 1;
+      width: auto;
+      height: 2.9rem;
+    }
+
+    .bt-ghost {
+      width: 2.5rem;
+      height: 2.5rem;
     }
   }
 </style>
