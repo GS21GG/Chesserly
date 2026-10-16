@@ -4768,7 +4768,7 @@
   /* ===== MOBILE: STICKY TITLE + MINIMAL SCROLL ============================= */
   @media (max-width: 767px) {
     .acc-badge { width: 19px; height: 19px; }
-    .board-acc-icon { width: 5.8%; height: 5.8%; }
+    .board-acc-icon { width: 6.1%; height: 6.1%; }
 
     .grid-layout {
       display: flex;
