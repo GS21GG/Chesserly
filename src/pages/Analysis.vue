@@ -69,6 +69,13 @@
   const thirdChess = new Chess()
   const DEPTH_STORAGE_KEY = 'chesslab_targetDepth'
 
+  const RAIL_KEY = 'chesslab_railOpen'
+  const isRailOpen = ref(localStorage.getItem(RAIL_KEY) !== 'false')
+
+  watch(isRailOpen, (v) => localStorage.setItem(RAIL_KEY, String(v)))
+
+  function toggleRail() { isRailOpen.value = !isRailOpen.value }
+
   function loadStoredDepth() {
     const stored = Number(localStorage.getItem(DEPTH_STORAGE_KEY))
     return stored >= 10 && stored <= 30 ? stored : 10
@@ -2461,21 +2468,23 @@
         </div>
       </div>
 
-      <div class="moves">
-        <!-- Thin icon rail instead of a tab bar -->
-        <div class="tabs-rail" role="tablist">
-          <button
-            v-for="t in tabs"
-            :key="t.id"
-            :class="{ active: activeTab === t.id }"
-            :title="t.label"
-            :aria-label="t.label"
-            @click="activeTab = t.id"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path :d="t.icon" />
-            </svg>
-          </button>
+      <!-- ============ MOVES PANEL (rail can be hidden with the button) ============ -->
+      <div class="moves" :class="{ 'rail-open': isRailOpen }">
+        <div class="tabs-rail-wrap">
+          <div class="tabs-rail" role="tablist">
+            <button
+              v-for="t in tabs"
+              :key="t.id"
+              :class="{ active: activeTab === t.id }"
+              :title="t.label"
+              :aria-label="t.label"
+              @click="activeTab = t.id"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path :d="t.icon" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="moves-body" ref="movesScrollRef">
@@ -2866,6 +2875,19 @@
             </template>
           </div>
         </div>
+
+        <!-- Rail toggle button (direct child of .moves, outside the scroll area) -->
+        <button
+          class="rail-toggle"
+          @click="toggleRail"
+          :title="isRailOpen ? 'Hide tabs' : 'Show tabs'"
+          :aria-label="isRailOpen ? 'Hide tabs' : 'Show tabs'"
+          :aria-expanded="isRailOpen"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
       </div>
     </div>
   </div>
@@ -3173,6 +3195,60 @@
     flex-wrap: wrap;
     justify-content: flex-end;
   }
+
+  .moves { position: relative; --rail-w: 42px; }
+
+  .tabs-rail-wrap {
+    flex-shrink: 0;
+    width: var(--rail-w);
+    overflow: hidden;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+    transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+  }
+
+  .moves:not(.rail-open) .tabs-rail-wrap {
+    width: 0;
+    opacity: 0;
+    border-right-width: 0;
+    pointer-events: none;
+  }
+
+  .tabs-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 4px;
+    box-sizing: border-box;
+    width: var(--rail-w);
+    height: 100%;
+    background: rgba(0, 0, 0, 0.15);
+  }
+
+  .rail-toggle {
+    position: absolute;
+    right: 14px;
+    bottom: 10px;
+    z-index: 5;
+    width: 2.1rem;
+    height: 2.1rem;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(168, 217, 122, 0.3);
+    border-radius: 50%;
+    background: rgba(30, 28, 24, 0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: #a8d97a;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background 0.2s ease, transform 0.1s ease;
+  }
+
+  .rail-toggle:hover { background: rgba(50, 48, 42, 0.95); }
+  .rail-toggle:active { transform: scale(0.92); }
+  .rail-toggle svg { transition: transform 0.28s ease; }
+  .moves:not(.rail-open) .rail-toggle svg { transform: rotate(180deg); }
 
   .captured-piece {
     font-size: 0.85rem;
@@ -4851,12 +4927,6 @@
       align-items: stretch;
     }
 
-    /* Board is never taller than 42% of the screen (tune this number) */
-    .board-col {
-      flex: 0 0 auto;
-      width: min(calc(100% - 16px), 42dvh);
-    }
-
     .evalbar {
       order: -1;
       width: 16px;
@@ -4874,10 +4944,16 @@
     :deep(.cg-wrap) { border-radius: 0 6px 6px 0; }
 
     /* Fills exactly the space that is left */
+    .board-col {
+      flex: 0 0 auto;
+      width: min(calc(100% - 16px), calc(100dvh - 400px));
+    }
+
+    /* Moves panel takes whatever space is left and may shrink a lot */
     .moves {
       order: 2;
       flex: 1 1 0;
-      min-height: 130px;
+      min-height: 90px;   /* was 130px */
       max-height: none;
       max-width: none;
       margin: 0;
@@ -4898,6 +4974,8 @@
       min-height: 0;
       max-height: none;
       overscroll-behavior: auto;
+      max-height: 20dvh;      /* cap it */
+      overflow-y: auto;
     }
 
     .boardtools { order: 4; }
