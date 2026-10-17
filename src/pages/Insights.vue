@@ -20,6 +20,17 @@
   const isPremium = ref(false)
   const premiumChecked = ref(true)
 
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'moves', label: 'Move classes' },
+    { id: 'colors', label: 'Colors' },
+    { id: 'pieces', label: 'Pieces' },
+    { id: 'openings', label: 'Openings' },
+    { id: 'stamina', label: 'Stamina' },
+    { id: 'playstyle', label: 'Playstyle' },
+    { id: 'heatmap', label: 'Heatmap' }
+  ]
+
   onMounted(() => {
     onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -214,7 +225,7 @@
     })
   })
 
-  // --- Accuracy Sparkline ---
+  // --- Accuracy Sparkline (bigger chart, last point as % so we can draw it in HTML) ---
   const sparklineData = computed(() => {
     const games = [...insights.value].reverse().filter(g => g.insights?.overallAccuracy !== null)
     if (games.length < 2) return null
@@ -222,13 +233,23 @@
     const min = Math.min(...accs) - 5
     const max = Math.max(...accs) + 5
     const range = max - min || 1
-    const w = 280, h = 50, pad = 4
-    const points = accs.map((a, i) => {
-      const x = pad + (i / (accs.length - 1)) * (w - pad * 2)
-      const y = h - pad - ((a - min) / range) * (h - pad * 2)
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    return { points: points.join(' '), width: w, height: h, lastAcc: accs[accs.length - 1].toFixed(1) }
+    const w = 600, h = 140, pad = 8
+    const coords = accs.map((a, i) => ({
+      x: pad + (i / (accs.length - 1)) * (w - pad * 2),
+      y: h - pad - ((a - min) / range) * (h - pad * 2)
+    }))
+    const points = coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')
+    const last = coords[coords.length - 1]
+    const area = `${pad},${h} ${points} ${last.x.toFixed(1)},${h}`
+    return {
+      points, area, width: w, height: h,
+      lastAcc: accs[accs.length - 1].toFixed(1),
+      lastX: (last.x / w) * 100,
+      lastY: (last.y / h) * 100,
+      games: accs.length,
+      high: Math.max(...accs).toFixed(1),
+      low: Math.min(...accs).toFixed(1)
+    }
   })
 
   // --- Coach Digest ---
@@ -371,6 +392,25 @@
     }).join(' ')
   })
 
+  const radarVertices = computed(() => {
+    const data = playstyleData.value
+    if (!data) return []
+    const n = data.length, center = 100, radius = 72
+    return data.map((d, i) => {
+      const angle = (i * (360 / n) - 90) * Math.PI / 180
+      return { x: center + (d.value / 100) * radius * Math.cos(angle), y: center + (d.value / 100) * radius * Math.sin(angle) }
+    })
+  })
+
+  const radarAxes = computed(() => {
+    const n = playstyleData.value?.length || 6
+    const center = 100, radius = 72
+    return Array.from({ length: n }).map((_, i) => {
+      const angle = (i * (360 / n) - 90) * Math.PI / 180
+      return { x: center + radius * Math.cos(angle), y: center + radius * Math.sin(angle) }
+    })
+  })
+
   const radarGrid = computed(() => {
     const n = playstyleData.value?.length || 6
     const center = 100, radius = 72
@@ -385,7 +425,7 @@
   const radarLabels = computed(() => {
     const data = playstyleData.value
     if (!data) return []
-    const n = data.length, center = 100, radius = 86
+    const n = data.length, center = 100, radius = 88
     return data.map((d, i) => {
       const angle = (i * (360 / n) - 90) * Math.PI / 180
       return { x: center + radius * Math.cos(angle), y: center + radius * Math.sin(angle), label: d.axis, value: d.value.toFixed(0) }
@@ -451,6 +491,14 @@
     const avg = (arr) => arr.reduce((a, g) => a + g.insights.overallAccuracy, 0) / arr.length
     const delta = avg(recent) - avg(older)
     return { delta: delta.toFixed(1), direction: delta > 0.5 ? 'up' : delta < -0.5 ? 'down' : 'flat' }
+  })
+
+  const trendText = computed(() => {
+    if (!trend.value) return ''
+    const d = Math.abs(parseFloat(trend.value.delta)).toFixed(1)
+    if (trend.value.direction === 'up') return `${d} points above your earlier games`
+    if (trend.value.direction === 'down') return `${d} points below your earlier games`
+    return 'Steady compared with your earlier games'
   })
 
   // --- Phase Accuracy ---
@@ -623,321 +671,306 @@
     <Title />
     <div class="content-area">
       <div class="insights-card">
-        <div class="card-header">
-          <h1 class="insights-title">Your Insights</h1>
-          <p class="insights-subtitle">Track your progress, find your weaknesses, and improve your game.</p>
-        </div>
+        <header class="card-header">
+          <h1 class="insights-title">Insights</h1>
+          <p class="insights-subtitle">What your analyzed games say about how you play.</p>
+        </header>
 
         <div v-if="loading" class="empty-state">
           <div class="loading-spinner"><div class="spinner-ring"></div><div class="spinner-ring"></div><div class="spinner-ring"></div></div>
-          <p>Crunching the numbers...</p>
+          <p>Crunching the numbers…</p>
         </div>
-        <div v-else-if="!currentUser" class="empty-state"><p>Please log in to view your insights.</p></div>
-        <div v-else-if="insights.length === 0" class="empty-state"><p>No data yet. Analyze a game from your library to start building your insights!</p></div>
+        <div v-else-if="!currentUser" class="empty-state"><p>Log in to see your insights.</p></div>
+        <div v-else-if="insights.length === 0" class="empty-state"><p>No data yet. Analyze a game from your library and your insights will show up here.</p></div>
 
         <div v-else class="dashboard-layout">
-          <div class="tab-nav-wrapper">
-            <div class="tab-nav">
-              <button class="tab-btn" :class="{ active: activeTab === 'overview' }" @click="setTab('overview')">Overview</button>
-              <button class="tab-btn" :class="{ active: activeTab === 'moves' }" @click="setTab('moves')">Move Classes</button>
-              <button class="tab-btn" :class="{ active: activeTab === 'colors' }" @click="setTab('colors')">Colors</button>
-              <button class="tab-btn" :class="{ active: activeTab === 'pieces' }" @click="setTab('pieces')">Pieces</button>
-              <button class="tab-btn" :class="{ active: activeTab === 'openings' }" @click="setTab('openings')">Openings</button>
-              <button class="tab-btn" :class="{ active: activeTab === 'stamina' }" @click="setTab('stamina')">Stamina</button>
-              <button class="tab-btn" :class="{ active: activeTab === 'playstyle' }" @click="setTab('playstyle')">Playstyle</button>
-              <button class="tab-btn" :class="{ active: activeTab === 'heatmap' }" @click="setTab('heatmap')">Heatmap</button>
-            </div>
-          </div>
-
-          <!-- Premium upsell banner -->
+          <nav class="side-nav" aria-label="Insights sections">
+            <button
+              v-for="t in tabs"
+              :key="t.id"
+              type="button"
+              class="nav-btn"
+              :class="{ active: activeTab === t.id }"
+              :aria-current="activeTab === t.id ? 'page' : undefined"
+              @click="setTab(t.id)"
+            >{{ t.label }}</button>
+          </nav>
 
           <div class="tab-content-area">
             <div class="tab-panel">
 
-              <!-- OVERVIEW TAB -->
+              <!-- OVERVIEW -->
               <template v-if="activeTab === 'overview'">
-                <div class="hero-card">
+                <section class="hero">
                   <div class="hero-main">
-                    <span class="stat-label">Overall Accuracy</span>
-                    <div class="hero-acc-row">
+                    <span class="muted">Overall accuracy</span>
+                    <span class="hero-value" :style="{ color: overallMeta.color }">{{ overallAccuracy !== null ? overallAccuracy : '—' }}<small v-if="overallAccuracy !== null">%</small></span>
+                    <div class="hero-sub">
                       <img v-if="overallMeta.icon" :src="overallMeta.icon" class="hero-icon" alt="" />
-                      <span class="hero-value" :style="{ color: overallMeta.color }">{{ overallAccuracy !== null ? overallAccuracy + '%' : '—' }}</span>
+                      <span>{{ overallMeta.label }} on average</span>
                     </div>
-                    <div v-if="trend" class="trend-pill" :class="trend.direction">
-                      <span v-if="trend.direction === 'up'">▲</span>
-                      <span v-else-if="trend.direction === 'down'">▼</span>
-                      <span v-else>◆</span>
-                      {{ Math.abs(trend.delta) }}% vs. earlier games
-                    </div>
+                    <p v-if="trend" class="trend" :class="trend.direction">{{ trendText }}</p>
                   </div>
-                  <div class="hero-divider"></div>
-                  <div class="hero-secondary">
-                    <div class="hero-stat"><span class="stat-label">Games</span><span class="hero-sub-value">{{ totalGames }}</span></div>
-                    <div class="hero-stat"><span class="stat-label">Moves</span><span class="hero-sub-value">{{ totalMoves }}</span></div>
-                    <div class="hero-stat"><span class="stat-label">Blunders</span><span class="hero-sub-value" style="color: #ff8a80;">{{ moveCounts.blunder + moveCounts.mistake }}</span></div>
+                  <dl class="hero-facts">
+                    <div><dt>Games</dt><dd>{{ totalGames }}</dd></div>
+                    <div><dt>Moves analyzed</dt><dd>{{ totalMoves }}</dd></div>
+                    <div><dt>Mistakes and blunders</dt><dd class="loss-text">{{ moveCounts.blunder + moveCounts.mistake }}</dd></div>
+                  </dl>
+                </section>
+
+                <section v-if="sparklineData" class="block">
+                  <h3 class="block-title">Accuracy over time</h3>
+                  <div class="chart">
+                    <svg :viewBox="`0 0 ${sparklineData.width} ${sparklineData.height}`" preserveAspectRatio="none" class="chart-svg">
+                      <line x1="0" :y1="sparklineData.height * 0.25" :x2="sparklineData.width" :y2="sparklineData.height * 0.25" class="chart-grid" />
+                      <line x1="0" :y1="sparklineData.height * 0.5" :x2="sparklineData.width" :y2="sparklineData.height * 0.5" class="chart-grid" />
+                      <line x1="0" :y1="sparklineData.height * 0.75" :x2="sparklineData.width" :y2="sparklineData.height * 0.75" class="chart-grid" />
+                      <polygon :points="sparklineData.area" class="chart-area" />
+                      <polyline :points="sparklineData.points" class="chart-line" />
+                    </svg>
+                    <span class="chart-dot" :style="{ left: sparklineData.lastX + '%', top: sparklineData.lastY + '%' }"></span>
                   </div>
-                </div>
+                  <div class="chart-foot">
+                    <span>Oldest of {{ sparklineData.games }} games</span>
+                    <span>Best {{ sparklineData.high }}%, worst {{ sparklineData.low }}%</span>
+                    <span>Latest {{ sparklineData.lastAcc }}%</span>
+                  </div>
+                </section>
 
-                <!-- Sparkline -->
-                <div v-if="sparklineData" class="sparkline-card">
-                  <span class="stat-label">Accuracy Trend</span>
-                  <svg :viewBox="`0 0 ${sparklineData.width} ${sparklineData.height}`" class="sparkline-svg">
-                    <polyline :points="sparklineData.points" fill="none" stroke="#6ad13f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                  <span class="sparkline-last">Latest: {{ sparklineData.lastAcc }}%</span>
-                </div>
-
-                <!-- Coach Digest -->
-                <div v-if="coachDigest" class="coach-digest">
-                  <h3 class="digest-title">📋 Coach Notes</h3>
-                  <ul class="digest-list">
+                <section v-if="coachDigest" class="block">
+                  <h3 class="block-title">What to work on</h3>
+                  <ul class="notes">
                     <li v-for="(line, i) in coachDigest" :key="i">{{ line }}</li>
                   </ul>
-                </div>
+                </section>
 
-                <!-- Recent Games -->
-                <div v-if="recentGames.length" class="recent-games">
-                  <h3 class="section-title">Recent Games</h3>
-                  <div class="recent-list">
-                    <div v-for="rg in recentGames" :key="rg.id" class="recent-row">
-                      <span class="recent-dot" :class="rg.outcome"></span>
-                      <span class="recent-opp">vs {{ rg.opponent }}</span>
-                      <span class="recent-opening">{{ rg.opening }}</span>
-                      <span class="recent-acc" :style="{ color: rg.accMeta.color }">{{ rg.accuracy }}%</span>
+                <section v-if="recentGames.length" class="block">
+                  <h3 class="block-title">Recent games</h3>
+                  <div class="table">
+                    <div class="trow thead recent-grid">
+                      <span>Result</span><span>Opponent</span><span class="hide-sm">Opening</span><span class="right">Accuracy</span>
+                    </div>
+                    <div v-for="rg in recentGames" :key="rg.id" class="trow recent-grid">
+                      <span class="result" :class="rg.outcome">{{ rg.outcome === 'win' ? 'Won' : rg.outcome === 'loss' ? 'Lost' : 'Draw' }}</span>
+                      <span class="cell-strong ellipsis">{{ rg.opponent }}</span>
+                      <span class="muted ellipsis hide-sm">{{ rg.opening }}</span>
+                      <span class="right num" :style="{ color: rg.accMeta.color }">{{ rg.accuracy }}%</span>
                     </div>
                   </div>
-                </div>
+                </section>
 
-                <!-- Phase Accuracy -->
-                <div class="phase-grid">
-                  <div class="phase-box" v-for="(phase, key) in phaseAccuracy" :key="key">
-                    <div class="phase-header">
+                <section class="block">
+                  <h3 class="block-title">Accuracy by phase</h3>
+                  <div class="phase-list">
+                    <div class="phase-row" v-for="(phase, key) in phaseAccuracy" :key="key">
                       <span class="phase-name">{{ key.charAt(0).toUpperCase() + key.slice(1) }}</span>
-                      <img v-if="phase.meta.icon" :src="phase.meta.icon" class="phase-icon-img" alt="" />
-                    </div>
-                    <div class="phase-bar-container">
-                      <div class="phase-bar" :style="{ width: (phase.val || 0) + '%', background: `linear-gradient(90deg, ${phase.meta.color}aa, ${phase.meta.color})` }"></div>
-                    </div>
-                    <div class="phase-footer">
-                      <span class="phase-n">{{ phase.n }} game{{ phase.n === 1 ? '' : 's' }}</span>
-                      <span class="phase-val" :style="{ color: phase.meta.color }">{{ phase.val !== null ? phase.val + '%' : '—' }}</span>
+                      <div class="bar"><div class="bar-fill" :style="{ width: (phase.val || 0) + '%', background: phase.meta.color }"></div></div>
+                      <span class="phase-val num" :style="{ color: phase.meta.color }">{{ phase.val !== null ? phase.val + '%' : '—' }}</span>
+                      <span class="phase-n muted">{{ phase.n }} game{{ phase.n === 1 ? '' : 's' }}</span>
                     </div>
                   </div>
-                </div>
+                </section>
 
-                <!-- Move-Number Buckets -->
-                <div v-if="hasMoveBuckets" class="bucket-section">
-                  <h3 class="section-title">Accuracy by Move Number</h3>
-                  <div class="bucket-grid">
-                    <div v-for="b in moveBucketData" :key="b.label" class="bucket-card" :class="{ empty: !b.avgAcc }">
-                      <span class="bucket-label">{{ b.label }}</span>
-                      <span class="bucket-val" :style="{ color: b.meta.color }">{{ b.avgAcc ? b.avgAcc + '%' : '—' }}</span>
-                      <span class="bucket-n">{{ b.count }} moves</span>
+                <section v-if="hasMoveBuckets" class="block">
+                  <h3 class="block-title">Accuracy by move number</h3>
+                  <div class="columns">
+                    <div v-for="b in moveBucketData" :key="b.label" class="column" :class="{ empty: !b.avgAcc }">
+                      <span class="column-val num" :style="{ color: b.meta.color }">{{ b.avgAcc ? b.avgAcc + '%' : '—' }}</span>
+                      <div class="column-track"><div class="column-fill" :style="{ height: (b.avgAcc || 0) + '%', background: b.meta.color }"></div></div>
+                      <span class="column-label">Moves {{ b.label }}</span>
+                      <span class="column-n muted">{{ b.count }} played</span>
                     </div>
                   </div>
-                </div>
+                </section>
               </template>
 
-              <!-- MOVE CLASSES TAB -->
+              <!-- MOVE CLASSES -->
               <template v-if="activeTab === 'moves'">
-                <div class="move-bar-container" v-if="moveCountsBarSegments.length">
-                  <div class="move-bar">
-                    <div v-for="seg in moveCountsBarSegments" :key="seg.key" class="move-bar-segment" :style="{ width: seg.percent + '%', background: seg.meta.color }" :title="`${seg.meta.label}: ${seg.count} (${seg.percent.toFixed(1)}%)`"></div>
+                <section class="block first">
+                  <h3 class="block-title">How your {{ moveCountsTotal }} moves were rated</h3>
+                  <div class="stack" v-if="moveCountsBarSegments.length">
+                    <div v-for="seg in moveCountsBarSegments" :key="seg.key" class="stack-seg" :style="{ width: seg.percent + '%', background: seg.meta.color }" :title="`${seg.meta.label}: ${seg.count} (${seg.percent.toFixed(1)}%)`"></div>
                   </div>
-                  <div class="move-bar-caption">
-                    <span>Total moves: <strong>{{ moveCountsTotal }}</strong></span>
-                    <span>Across <strong>{{ totalGames }}</strong> games</span>
-                  </div>
-                </div>
-                <div class="move-classes-grid">
-                  <div v-for="(meta, key) in classificationMeta" :key="key" class="move-class-box">
-                    <img :src="meta.icon" class="mc-icon-img" :alt="meta.label" />
-                    <span class="mc-label" :style="{ color: meta.color }">{{ meta.label }}</span>
-                    <div class="mc-numbers">
-                      <span class="mc-count">{{ moveCountsWithAvg[key].total }}</span>
-                      <span class="mc-percent" v-if="moveCountsTotal">{{ ((moveCounts[key] / moveCountsTotal) * 100).toFixed(1) }}% of moves</span>
-                      <span class="mc-avg">{{ moveCountsWithAvg[key].avg.toFixed(2) }} / game</span>
+                </section>
+                <section class="block">
+                  <div class="table">
+                    <div class="trow thead class-grid">
+                      <span></span><span>Rating</span><span class="right">Moves</span><span class="right hide-sm">Share</span><span class="right">Per game</span>
+                    </div>
+                    <div v-for="(meta, key) in classificationMeta" :key="key" class="trow class-grid">
+                      <img :src="meta.icon" class="class-icon" :alt="meta.label" />
+                      <span class="cell-strong" :style="{ color: meta.color }">{{ meta.label }}</span>
+                      <span class="right num">{{ moveCountsWithAvg[key].total }}</span>
+                      <span class="right num muted hide-sm">{{ moveCountsTotal ? ((moveCounts[key] / moveCountsTotal) * 100).toFixed(1) + '%' : '—' }}</span>
+                      <span class="right num muted">{{ moveCountsWithAvg[key].avg.toFixed(2) }}</span>
                     </div>
                   </div>
-                </div>
+                </section>
               </template>
 
-              <!-- COLORS TAB -->
+              <!-- COLORS -->
               <template v-if="activeTab === 'colors'">
-                <div class="colors-grid">
-                  <div v-for="side in ['white', 'black']" :key="side" class="color-card" :class="side + '-card'">
-                    <div class="color-header">
-                      <span class="color-swatch" :class="side"></span>
-                      <h3 class="color-title">Playing as {{ side.charAt(0).toUpperCase() + side.slice(1) }}</h3>
+                <div class="split">
+                  <section v-for="side in ['white', 'black']" :key="side" class="split-col">
+                    <div class="split-head">
+                      <span class="swatch" :class="side"></span>
+                      <h3 class="block-title tight">As {{ side }}</h3>
                     </div>
-                    <div class="color-body">
-                      <div class="color-stat"><span class="stat-label">Games</span><span class="color-val">{{ colorPerformance[side].games }}</span></div>
-                      <div class="color-stat"><span class="stat-label">Avg Accuracy</span><span class="color-val" :style="{ color: colorPerformance[side].avgAcc ? getAccuracyMeta(parseFloat(colorPerformance[side].avgAcc)).color : '#fff' }">{{ colorPerformance[side].avgAcc ? colorPerformance[side].avgAcc + '%' : '—' }}</span></div>
-                      <div class="color-stat"><span class="stat-label">Blunders</span><span class="color-val" style="color: #ff8a80;">{{ colorPerformance[side].blunders }}</span></div>
-                      <div class="wld-bar">
-                        <div class="wld-segment win" :style="{ width: (colorPerformance[side].games > 0 ? (colorPerformance[side].win / colorPerformance[side].games) * 100 : 0) + '%' }"></div>
-                        <div class="wld-segment draw" :style="{ width: (colorPerformance[side].games > 0 ? (colorPerformance[side].draw / colorPerformance[side].games) * 100 : 0) + '%' }"></div>
-                        <div class="wld-segment loss" :style="{ width: (colorPerformance[side].games > 0 ? (colorPerformance[side].loss / colorPerformance[side].games) * 100 : 0) + '%' }"></div>
-                      </div>
-                      <div class="wld-legend">
-                        <span><span class="dot win"></span> Win ({{ colorPerformance[side].win }})</span>
-                        <span><span class="dot draw"></span> Draw ({{ colorPerformance[side].draw }})</span>
-                        <span><span class="dot loss"></span> Loss ({{ colorPerformance[side].loss }})</span>
-                      </div>
+                    <span class="big-num" :style="{ color: colorPerformance[side].avgAcc ? getAccuracyMeta(parseFloat(colorPerformance[side].avgAcc)).color : 'inherit' }">{{ colorPerformance[side].avgAcc ? colorPerformance[side].avgAcc + '%' : '—' }}</span>
+                    <span class="muted">average accuracy</span>
+                    <dl class="facts">
+                      <div><dt>Games</dt><dd>{{ colorPerformance[side].games }}</dd></div>
+                      <div><dt>Mistakes and blunders</dt><dd class="loss-text">{{ colorPerformance[side].blunders }}</dd></div>
+                    </dl>
+                    <div class="wld-bar">
+                      <div class="wld-segment win" :style="{ width: (colorPerformance[side].games > 0 ? (colorPerformance[side].win / colorPerformance[side].games) * 100 : 0) + '%' }"></div>
+                      <div class="wld-segment draw" :style="{ width: (colorPerformance[side].games > 0 ? (colorPerformance[side].draw / colorPerformance[side].games) * 100 : 0) + '%' }"></div>
+                      <div class="wld-segment loss" :style="{ width: (colorPerformance[side].games > 0 ? (colorPerformance[side].loss / colorPerformance[side].games) * 100 : 0) + '%' }"></div>
                     </div>
-                  </div>
+                    <div class="wld-legend">
+                      <span><i class="dot win"></i>Won {{ colorPerformance[side].win }}</span>
+                      <span><i class="dot draw"></i>Drew {{ colorPerformance[side].draw }}</span>
+                      <span><i class="dot loss"></i>Lost {{ colorPerformance[side].loss }}</span>
+                    </div>
+                  </section>
                 </div>
               </template>
 
-              <!-- PIECES TAB -->
+              <!-- PIECES -->
               <template v-if="activeTab === 'pieces'">
-                <div class="pieces-grid">
-                  <div v-for="p in pieceData" :key="p.key" class="piece-card">
-                    <div class="piece-header">
+                <section class="block first">
+                  <div class="table">
+                    <div class="trow thead piece-grid">
+                      <span></span><span>Piece</span><span class="hide-sm">Moves</span><span>Accuracy</span>
+                    </div>
+                    <div v-for="p in pieceData" :key="p.key" class="trow piece-grid">
                       <span class="piece-symbol" :style="{ color: p.color }">{{ p.symbol }}</span>
-                      <span class="piece-name">{{ p.label }}</span>
-                    </div>
-                    <div class="piece-stats">
-                      <div class="piece-stat"><span class="stat-label">Moves</span><span class="piece-val">{{ p.count }} ({{ p.movePercent }}%)</span></div>
-                      <div class="piece-stat">
-                        <span class="stat-label">Avg Accuracy</span>
-                        <div class="piece-acc-row">
-                          <img v-if="p.meta.icon" :src="p.meta.icon" class="piece-icon" alt="" />
-                          <span class="piece-val" :style="{ color: p.meta.color }">{{ p.avgAcc !== null ? p.avgAcc + '%' : '—' }}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="piece-bar-container">
-                      <div class="piece-bar" :style="{ width: (p.avgAcc || 0) + '%', background: `linear-gradient(90deg, ${p.meta.color}aa, ${p.meta.color})` }"></div>
+                      <span class="cell-strong">{{ p.label }}</span>
+                      <span class="muted num hide-sm">{{ p.count }} ({{ p.movePercent }}%)</span>
+                      <span class="piece-acc">
+                        <span class="bar"><span class="bar-fill" :style="{ width: (p.avgAcc || 0) + '%', background: p.meta.color }"></span></span>
+                        <span class="num piece-val" :style="{ color: p.meta.color }">{{ p.avgAcc !== null ? p.avgAcc + '%' : '—' }}</span>
+                      </span>
                     </div>
                   </div>
-                </div>
+                </section>
               </template>
 
-              <!-- OPENINGS TAB -->
+              <!-- OPENINGS -->
               <template v-if="activeTab === 'openings'">
-                <div v-if="worstOpening" class="worst-opening-callout">
-                  <span class="callout-icon">⚠️</span>
-                  <span>Your weakest opening with 5+ games: <strong>{{ worstOpening.name }}</strong> ({{ worstOpening.avgAccuracy }}% accuracy, {{ worstOpening.count }} games)</span>
-                </div>
-                <div class="openings-list">
-                  <div v-for="(opening, i) in allOpenings" :key="i" class="opening-block">
-                    <div class="opening-row" @click="toggleOpening(opening.name)">
-                      <span class="opening-rank">#{{ i + 1 }}</span>
-                      <span class="opening-name">{{ opening.name }}</span>
-                      <span class="opening-games">{{ opening.count }} games</span>
-                      <div class="opening-acc-container" v-if="opening.avgAccuracy">
-                        <img :src="opening.meta.icon" class="opening-acc-icon" alt="" />
-                        <span class="opening-acc" :style="{ color: opening.meta.color }">{{ opening.avgAccuracy }}%</span>
-                      </div>
-                      <span class="expand-arrow" :class="{ open: expandedOpening === opening.name }">▾</span>
-                    </div>
-                    <!-- Expanded detail -->
-                    <div v-if="expandedOpening === opening.name" class="opening-detail">
-                      <div class="opening-wld-row">
-                        <div class="wld-mini">
-                          <span class="wld-mini-label">Overall</span>
-                          <span class="wld-mini-vals"><span class="w">W {{ opening.win }}</span> <span class="d">D {{ opening.draw }}</span> <span class="l">L {{ opening.loss }}</span></span>
+                <p v-if="worstOpening" class="callout">
+                  Your weakest opening with 5 or more games is <strong>{{ worstOpening.name }}</strong>: {{ worstOpening.avgAccuracy }}% accuracy over {{ worstOpening.count }} games.
+                </p>
+                <section class="block" :class="{ first: !worstOpening }">
+                  <div class="openings-list">
+                    <div v-for="opening in allOpenings" :key="opening.name" class="opening-block">
+                      <button type="button" class="opening-row" :aria-expanded="expandedOpening === opening.name" @click="toggleOpening(opening.name)">
+                        <span class="opening-name">{{ opening.name }}</span>
+                        <span class="opening-games muted num">{{ opening.count }} game{{ opening.count === 1 ? '' : 's' }}</span>
+                        <span class="opening-acc num" v-if="opening.avgAccuracy" :style="{ color: opening.meta.color }">{{ opening.avgAccuracy }}%</span>
+                        <svg class="chevron" :class="{ open: expandedOpening === opening.name }" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                      <div v-if="expandedOpening === opening.name" class="opening-detail">
+                        <div class="opening-wld-row">
+                          <div class="wld-mini"><span class="wld-mini-label">Overall</span><span class="wld-mini-vals num"><span class="w">W {{ opening.win }}</span><span class="d">D {{ opening.draw }}</span><span class="l">L {{ opening.loss }}</span></span></div>
+                          <div class="wld-mini"><span class="wld-mini-label">As white</span><span class="wld-mini-vals num"><span class="w">W {{ opening.asWhite.win }}</span><span class="d">D {{ opening.asWhite.draw }}</span><span class="l">L {{ opening.asWhite.loss }}</span></span></div>
+                          <div class="wld-mini"><span class="wld-mini-label">As black</span><span class="wld-mini-vals num"><span class="w">W {{ opening.asBlack.win }}</span><span class="d">D {{ opening.asBlack.draw }}</span><span class="l">L {{ opening.asBlack.loss }}</span></span></div>
                         </div>
-                        <div class="wld-mini">
-                          <span class="wld-mini-label">As White</span>
-                          <span class="wld-mini-vals"><span class="w">W {{ opening.asWhite.win }}</span> <span class="d">D {{ opening.asWhite.draw }}</span> <span class="l">L {{ opening.asWhite.loss }}</span></span>
-                        </div>
-                        <div class="wld-mini">
-                          <span class="wld-mini-label">As Black</span>
-                          <span class="wld-mini-vals"><span class="w">W {{ opening.asBlack.win }}</span> <span class="d">D {{ opening.asBlack.draw }}</span> <span class="l">L {{ opening.asBlack.loss }}</span></span>
-                        </div>
-                      </div>
-                      <div class="opening-games-list">
-                        <div v-for="og in opening.games" :key="og.id" class="opening-game-row">
-                          <span class="recent-dot" :class="og.outcome"></span>
-                          <span class="og-opp">vs {{ og.opponent }}</span>
-                          <span class="og-color">{{ og.myColor === 'white' ? '⚪' : '⚫' }}</span>
-                          <span class="og-acc">{{ og.accuracy }}%</span>
+                        <div class="table">
+                          <div v-for="og in opening.games" :key="og.id" class="trow og-grid">
+                            <span class="result" :class="og.outcome">{{ og.outcome === 'win' ? 'Won' : og.outcome === 'loss' ? 'Lost' : 'Draw' }}</span>
+                            <span class="cell-strong ellipsis">{{ og.opponent }}</span>
+                            <span class="muted">{{ og.myColor === 'white' ? 'White' : 'Black' }}</span>
+                            <span class="right num muted">{{ og.accuracy }}%</span>
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                </section>
               </template>
 
-              <!-- STAMINA TAB -->
+              <!-- STAMINA -->
               <template v-if="activeTab === 'stamina'">
-                <div class="stamina-grid">
-                  <div v-for="bucket in gameLengthStats" :key="bucket.label" class="stamina-card">
-                    <h3 class="stamina-title">{{ bucket.label }}</h3>
-                    <span class="stamina-games">{{ bucket.games }} Games</span>
-                    <div class="wld-bar stamina-wld">
+                <div class="split three">
+                  <section v-for="bucket in gameLengthStats" :key="bucket.label" class="split-col">
+                    <h3 class="block-title tight">{{ bucket.label }}</h3>
+                    <span class="big-num" :style="{ color: bucket.avgAcc ? getAccuracyMeta(parseFloat(bucket.avgAcc)).color : 'inherit' }">{{ bucket.avgAcc ? bucket.avgAcc + '%' : '—' }}</span>
+                    <span class="muted">{{ bucket.games }} game{{ bucket.games === 1 ? '' : 's' }}</span>
+                    <div class="wld-bar">
                       <div class="wld-segment win" :style="{ width: (bucket.games > 0 ? (bucket.win / bucket.games) * 100 : 0) + '%' }"></div>
                       <div class="wld-segment draw" :style="{ width: (bucket.games > 0 ? (bucket.draw / bucket.games) * 100 : 0) + '%' }"></div>
                       <div class="wld-segment loss" :style="{ width: (bucket.games > 0 ? (bucket.loss / bucket.games) * 100 : 0) + '%' }"></div>
                     </div>
                     <div class="wld-legend">
-                      <span><span class="dot win"></span> {{ bucket.win }}</span>
-                      <span><span class="dot draw"></span> {{ bucket.draw }}</span>
-                      <span><span class="dot loss"></span> {{ bucket.loss }}</span>
+                      <span><i class="dot win"></i>{{ bucket.win }}</span>
+                      <span><i class="dot draw"></i>{{ bucket.draw }}</span>
+                      <span><i class="dot loss"></i>{{ bucket.loss }}</span>
                     </div>
-                    <div class="stamina-stat"><span class="stat-label">Avg Accuracy</span><span class="stamina-val" :style="{ color: bucket.avgAcc ? getAccuracyMeta(parseFloat(bucket.avgAcc)).color : '#fff' }">{{ bucket.avgAcc ? bucket.avgAcc + '%' : '—' }}</span></div>
-                    <div class="stamina-stat"><span class="stat-label">Blunders</span><span class="stamina-val" style="color: #ff8a80;">{{ bucket.blunders }}</span></div>
-                  </div>
+                    <dl class="facts">
+                      <div><dt>Mistakes and blunders</dt><dd class="loss-text">{{ bucket.blunders }}</dd></div>
+                    </dl>
+                  </section>
                 </div>
               </template>
 
-              <!-- PLAYSTYLE TAB -->
+              <!-- PLAYSTYLE -->
               <template v-if="activeTab === 'playstyle'">
-                <div class="playstyle-panel" v-if="playstyleData">
-                  <p class="panel-meta" v-if="playstyleAgg">Based on {{ playstyleAgg.games }} analyzed game{{ playstyleAgg.games === 1 ? '' : 's' }} · {{ playstyleAgg.myMoves }} of your moves</p>
-                  <div class="radar-container">
-                    <svg viewBox="0 0 200 200" class="radar-svg">
-                      <polygon v-for="(points, i) in radarGrid" :key="i" :points="points" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1" />
-                      <polygon v-if="radarPoints" :points="radarPoints" fill="rgba(106, 209, 63, 0.2)" stroke="#6ad13f" stroke-width="2" />
-                      <text v-for="label in radarLabels" :key="label.label" :x="label.x" :y="label.y" text-anchor="middle" dominant-baseline="middle" class="radar-label">{{ label.label }}</text>
-                    </svg>
-                  </div>
-                  <div class="playstyle-traits">
-                    <div v-for="d in playstyleData" :key="d.axis" class="trait-row">
-                      <span class="trait-name">{{ d.axis }}</span>
-                      <div class="trait-bar-container"><div class="trait-bar" :style="{ width: d.value + '%' }"></div></div>
-                      <span class="trait-val">{{ d.value.toFixed(0) }}</span>
+                <template v-if="playstyleData">
+                  <p class="muted lead" v-if="playstyleAgg">Based on {{ playstyleAgg.games }} analyzed game{{ playstyleAgg.games === 1 ? '' : 's' }} and {{ playstyleAgg.myMoves }} of your moves.</p>
+                  <div class="playstyle-top">
+                    <div class="radar-container">
+                      <svg viewBox="-12 -4 224 208" class="radar-svg" role="img" aria-label="Playstyle radar chart">
+                        <polygon v-for="(points, i) in radarGrid" :key="i" :points="points" fill="none" class="radar-ring" />
+                        <line v-for="(a, i) in radarAxes" :key="'ax-' + i" x1="100" y1="100" :x2="a.x" :y2="a.y" class="radar-axis" />
+                        <polygon v-if="radarPoints" :points="radarPoints" class="radar-shape" />
+                        <circle v-for="(v, i) in radarVertices" :key="'v-' + i" :cx="v.x" :cy="v.y" r="2.6" class="radar-dot" />
+                        <text v-for="label in radarLabels" :key="label.label" :x="label.x" :y="label.y" text-anchor="middle" dominant-baseline="middle" class="radar-label">{{ label.label }}</text>
+                      </svg>
+                    </div>
+                    <div class="playstyle-traits">
+                      <div v-for="d in playstyleData" :key="d.axis" class="trait-row">
+                        <span class="trait-name">{{ d.axis }}</span>
+                        <div class="bar"><div class="bar-fill accent" :style="{ width: d.value + '%' }"></div></div>
+                        <span class="trait-val num">{{ d.value.toFixed(0) }}</span>
+                      </div>
                     </div>
                   </div>
-                  <div class="playstyle-note" v-if="playstyleNote">
-                    <div class="playstyle-note-header">
-                      <span class="playstyle-archetype">{{ playstyleNote.title }}</span>
-                      <span class="playstyle-trait-tag">Strongest trait: {{ playstyleNote.trait }}</span>
-                    </div>
-                    <p class="playstyle-note-body">{{ playstyleNote.body }}</p>
-                    <p class="playstyle-note-secondary" v-if="playstyleNote.secondary">{{ playstyleNote.secondary }}</p>
-                  </div>
-                  <div class="playstyle-formulas">
-                    <h4 class="formulas-title">How each trait is calculated</h4>
+                  <section class="block" v-if="playstyleNote">
+                    <h3 class="note-title">{{ playstyleNote.title }}</h3>
+                    <p class="muted tag">Strongest trait: {{ playstyleNote.trait }}</p>
+                    <p class="prose">{{ playstyleNote.body }}</p>
+                    <p class="prose muted" v-if="playstyleNote.secondary">{{ playstyleNote.secondary }}</p>
+                  </section>
+                  <details class="block formulas">
+                    <summary>How each trait is calculated</summary>
                     <div v-for="f in playstyleFormulas" :key="f.axis" class="formula-row">
                       <span class="formula-axis">{{ f.axis }}</span>
                       <span class="formula-text">{{ f.formula }}</span>
                     </div>
-                    <p class="formulas-disclaimer">Note: each axis is normalized independently on a 0–100 intensity scale, so the values intentionally do <strong>not</strong> sum to 100.</p>
-                    <p class="formulas-disclaimer" v-if="legacyPlaystyleGames > 0">{{ legacyPlaystyleGames }} game{{ legacyPlaystyleGames === 1 ? '' : 's' }} analyzed before this update use the legacy playstyle profile and aren't included above.</p>
-                  </div>
-                </div>
+                    <p class="fineprint">Each trait is scored from 0 to 100 on its own, so the values don't add up to 100.</p>
+                    <p class="fineprint" v-if="legacyPlaystyleGames > 0">{{ legacyPlaystyleGames }} game{{ legacyPlaystyleGames === 1 ? '' : 's' }} analyzed before this update use the old playstyle profile and aren't included.</p>
+                  </details>
+                </template>
                 <div v-else class="panel-empty">
-                  <p v-if="legacyPlaystyleGames > 0">Your {{ legacyPlaystyleGames }} saved game{{ legacyPlaystyleGames === 1 ? '' : 's' }} predate the current playstyle engine. Re-analyze them from your library to build a full profile.</p>
-                  <p v-else>Not enough data to generate a playstyle profile yet. Analyze a few more games!</p>
+                  <p v-if="legacyPlaystyleGames > 0">Your {{ legacyPlaystyleGames }} saved game{{ legacyPlaystyleGames === 1 ? '' : 's' }} use the old playstyle profile. Re-analyze them from your library to see your full profile.</p>
+                  <p v-else>Not enough data for a playstyle profile yet. Analyze a few more games.</p>
                 </div>
               </template>
 
-              <!-- HEATMAP TAB -->
+              <!-- HEATMAP -->
               <template v-if="activeTab === 'heatmap'">
                 <div class="heatmap-panel">
                   <div class="heatmap-boards-container">
                     <div class="heatmap-instance">
                       <div class="heatmap-header">
-                        <h3 class="section-subtitle bad-color">Mistakes & Blunders</h3>
-                        <span class="heatmap-total">{{ totalBadMoves }} mapped</span>
+                        <h3 class="block-title tight bad-color">Mistakes and blunders</h3>
+                        <span class="muted num">{{ totalBadMoves }} on the board</span>
                       </div>
-                      <div class="heatmap-board-wrapper">
-                        <div class="heatmap-board">
-                          <div class="heatmap-rank-labels" aria-hidden="true"><span v-for="r in 8" :key="r">{{ 9 - r }}</span></div>
-                          <div class="heatmap-grid-area">
+                      <div class="heatmap-board">
+                        <div class="heatmap-rank-labels" aria-hidden="true"><span v-for="r in 8" :key="r">{{ 9 - r }}</span></div>
+                        <div class="heatmap-grid-area">
+                          <div class="heatmap-grid">
                             <div class="heatmap-row" v-for="row in badBoardSquares" :key="row[0].sq[1]">
                               <button v-for="sq in row" :key="sq.sq" type="button" class="heatmap-square bad"
                                 :class="{ light: (sq.sq.charCodeAt(0) + sq.sq.charCodeAt(1)) % 2 === 0, dark: (sq.sq.charCodeAt(0) + sq.sq.charCodeAt(1)) % 2 !== 0, active: sq.intensity > 0, selected: selectedSquare?.sq === sq.sq }"
@@ -945,20 +978,20 @@
                                 <span v-if="sq.count > 0" class="sq-count">{{ sq.count }}</span>
                               </button>
                             </div>
-                            <div class="heatmap-file-labels" aria-hidden="true"><span v-for="f in ['a','b','c','d','e','f','g','h']" :key="f">{{ f }}</span></div>
                           </div>
+                          <div class="heatmap-file-labels" aria-hidden="true"><span v-for="f in ['a','b','c','d','e','f','g','h']" :key="f">{{ f }}</span></div>
                         </div>
                       </div>
                     </div>
                     <div class="heatmap-instance">
                       <div class="heatmap-header">
-                        <h3 class="section-subtitle good-color">Strong Moves</h3>
-                        <span class="heatmap-total">{{ totalGoodMoves }} mapped</span>
+                        <h3 class="block-title tight good-color">Strong moves</h3>
+                        <span class="muted num">{{ totalGoodMoves }} on the board</span>
                       </div>
-                      <div class="heatmap-board-wrapper">
-                        <div class="heatmap-board">
-                          <div class="heatmap-rank-labels" aria-hidden="true"><span v-for="r in 8" :key="r">{{ 9 - r }}</span></div>
-                          <div class="heatmap-grid-area">
+                      <div class="heatmap-board">
+                        <div class="heatmap-rank-labels" aria-hidden="true"><span v-for="r in 8" :key="r">{{ 9 - r }}</span></div>
+                        <div class="heatmap-grid-area">
+                          <div class="heatmap-grid">
                             <div class="heatmap-row" v-for="row in goodBoardSquares" :key="row[0].sq[1]">
                               <button v-for="sq in row" :key="sq.sq" type="button" class="heatmap-square good"
                                 :class="{ light: (sq.sq.charCodeAt(0) + sq.sq.charCodeAt(1)) % 2 === 0, dark: (sq.sq.charCodeAt(0) + sq.sq.charCodeAt(1)) % 2 !== 0, active: sq.intensity > 0, selected: selectedSquare?.sq === sq.sq }"
@@ -966,27 +999,26 @@
                                 <span v-if="sq.count > 0" class="sq-count">{{ sq.count }}</span>
                               </button>
                             </div>
-                            <div class="heatmap-file-labels" aria-hidden="true"><span v-for="f in ['a','b','c','d','e','f','g','h']" :key="f">{{ f }}</span></div>
                           </div>
+                          <div class="heatmap-file-labels" aria-hidden="true"><span v-for="f in ['a','b','c','d','e','f','g','h']" :key="f">{{ f }}</span></div>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Drill-down -->
                   <div v-if="selectedSquare" class="heatmap-drilldown">
-                    <h4 class="drilldown-title">{{ selectedSquare.sq }} — {{ selectedSquare.count }} move{{ selectedSquare.count === 1 ? '' : 's' }}</h4>
-                    <div v-if="heatmapDrillDown.length" class="drilldown-games">
-                      <div v-for="dg in heatmapDrillDown" :key="dg.id" class="drilldown-row">
-                        <span class="recent-dot" :class="dg.outcome"></span>
-                        <span class="dg-opp">vs {{ dg.opponent }}</span>
-                        <span class="dg-count">{{ dg.count }}× on {{ selectedSquare.sq }}</span>
-                        <span class="dg-acc">{{ dg.accuracy }}%</span>
+                    <h4 class="drilldown-title">{{ selectedSquare.sq }}: {{ selectedSquare.count }} move{{ selectedSquare.count === 1 ? '' : 's' }}</h4>
+                    <div v-if="heatmapDrillDown.length" class="table">
+                      <div v-for="dg in heatmapDrillDown" :key="dg.id" class="trow dg-grid">
+                        <span class="result" :class="dg.outcome">{{ dg.outcome === 'win' ? 'Won' : dg.outcome === 'loss' ? 'Lost' : 'Draw' }}</span>
+                        <span class="cell-strong ellipsis">{{ dg.opponent }}</span>
+                        <span class="muted num">{{ dg.count }}× here</span>
+                        <span class="right num muted">{{ dg.accuracy }}%</span>
                       </div>
                     </div>
-                    <p v-else class="drilldown-empty">No game-level detail available for this square.</p>
+                    <p v-else class="muted">No game details for this square.</p>
                   </div>
-                  <p v-else class="heatmap-info">Tap a square to see which games it appeared in.</p>
+                  <p v-else class="muted center">Tap a square to see which games it came from.</p>
                 </div>
               </template>
 
@@ -999,17 +1031,7 @@
 </template>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
-
-/* Dynamic Board Variables (falls back smoothly if unprovided by global theme) */
-:root {
-  --board-light: #f0d9b5;
-  --board-dark: #b58863;
-  --panel-1: #262421;
-  --panel-2: #1e1c18;
-  --btn-active: #363431;
-  --text-highlight: #d9b382;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 .page-layout {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -1024,10 +1046,7 @@
 }
 
 @media (min-width: 768px) {
-  .page-layout {
-    grid-template-columns: auto 1fr;
-    gap: 1.5rem;
-  }
+  .page-layout { grid-template-columns: auto 1fr; gap: 1.5rem; }
 }
 
 .content-area {
@@ -1037,43 +1056,65 @@
   min-width: 0;
 }
 
+/* ===== Card + design tokens ============================================== */
 .insights-card {
+  --accent: var(--text-highlight, #d9b382);
+  --ink: #f4f0e3;
+  --ink-2: rgba(244, 240, 227, 0.68);
+  --ink-3: rgba(244, 240, 227, 0.42);
+  --line: rgba(244, 240, 227, 0.09);
+  --win: #8fd97a;
+  --loss: #ff8a80;
+  --draw: #d9b36a;
+
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  padding: clamp(1.5rem, 3vw, 2.5rem);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  background: linear-gradient(145deg, var(--panel-1, #262421), var(--panel-2, #1e1c18));
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   height: calc(100vh - 2rem);
-  max-height: 900px;
+  max-height: 920px;
   overflow: hidden;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel-1, #262421);
+  font-variant-numeric: tabular-nums;
 }
 
 .card-header {
-  text-align: center;
   flex-shrink: 0;
+  padding: clamp(1.25rem, 3vw, 2rem) clamp(1.25rem, 3vw, 2rem) 1.1rem;
+  border-bottom: 1px solid var(--line);
 }
 
 .insights-title {
-  font-family: 'Cormorant Garamond', serif;
-  color: #f5f5dc;
+  margin: 0;
+  font-size: clamp(1.7rem, 3.4vw, 2.3rem);
   font-weight: 700;
-  text-transform: uppercase;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-  letter-spacing: 2px;
-  font-size: clamp(1.5rem, 3vw, 2rem);
-  margin: 0 0 0.4rem;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--ink);
 }
 
 .insights-subtitle {
-  color: rgba(244, 240, 227, 0.72);
+  margin: 0.35rem 0 0;
   font-size: 0.95rem;
-  margin: 0;
+  color: var(--ink-2);
+}
+
+/* ===== Shared bits ======================================================= */
+.muted { color: var(--ink-3); }
+.num { font-variant-numeric: tabular-nums; }
+.right { text-align: right; justify-self: end; }
+.center { text-align: center; }
+.loss-text { color: var(--loss); }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cell-strong { font-weight: 600; color: var(--ink); }
+
+.insights-card :is(button, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .empty-state {
@@ -1083,1346 +1124,364 @@
   justify-content: center;
   flex: 1;
   gap: 1rem;
-  color: rgba(244, 240, 227, 0.6);
-  font-size: 1rem;
+  padding: 2rem;
+  color: var(--ink-2);
   text-align: center;
 }
 
 .panel-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  color: rgba(244, 240, 227, 0.55);
-  font-size: 0.9rem;
-  background: rgba(0, 0, 0, 0.15);
-  border: 1px dashed rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 2.5rem 1.5rem;
   max-width: 420px;
-  margin: 0 auto;
+  margin: 2rem auto;
+  text-align: center;
+  color: var(--ink-2);
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
-.loading-spinner {
-  position: relative;
-  width: 56px;
-  height: 56px;
-}
-
+.loading-spinner { position: relative; width: 52px; height: 52px; }
 .spinner-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
   border: 3px solid transparent;
-  border-top-color: var(--text-highlight, #d9b382);
+  border-top-color: var(--accent);
   animation: spinRing 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
+.spinner-ring:nth-child(2) { inset: 7px; border-top-color: #a8d97a; animation-duration: 1.6s; animation-direction: reverse; }
+.spinner-ring:nth-child(3) { inset: 14px; border-top-color: var(--ink); animation-duration: 2s; }
+@keyframes spinRing { to { transform: rotate(360deg); } }
 
-.spinner-ring:nth-child(2) {
-  inset: 7px;
-  border-top-color: #a8d97a;
-  animation-duration: 1.6s;
-  animation-direction: reverse;
-}
-
-.spinner-ring:nth-child(3) {
-  inset: 14px;
-  border-top-color: #f4f0e3;
-  animation-duration: 2s;
-}
-
-@keyframes spinRing {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
+/* ===== Layout: side nav + content ======================================== */
 .dashboard-layout {
   display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
   flex: 1;
   min-height: 0;
 }
 
-.tab-nav-wrapper {
-  flex-shrink: 0;
-  overflow-x: auto;
+.side-nav {
+  flex: 0 0 11.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 1rem 0.75rem;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
   scrollbar-width: none;
 }
+.side-nav::-webkit-scrollbar { display: none; }
 
-.tab-nav-wrapper::-webkit-scrollbar {
-  display: none;
-}
-
-.tab-nav {
-  display: inline-flex;
-  min-width: 100%;
-  gap: 0.5rem;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 0.4rem;
-  border-radius: 12px;
-}
-
-.tab-btn {
-  padding: 0.6rem 1.2rem;
+.nav-btn {
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  border: none;
+  border-radius: 8px;
   background: transparent;
-  border: none;
-  color: rgba(244, 240, 227, 0.6);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.nav-btn:hover { background: rgba(255, 255, 255, 0.045); color: var(--ink); }
+.nav-btn.active {
+  background: rgba(255, 255, 255, 0.075);
+  color: var(--ink);
   font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.tab-btn:hover {
-  color: #f4f0e3;
-}
-
-.tab-btn.active {
-  background: var(--btn-active, rgba(255, 255, 255, 0.1));
-  color: #f5f5dc;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
-}
-
-.premium-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.7rem 1rem;
-  background: linear-gradient(135deg, rgba(217, 179, 130, 0.12), rgba(106, 209, 63, 0.08));
-  border: 1px solid rgba(217, 179, 130, 0.3);
-  border-radius: 10px;
-  font-size: 0.85rem;
-  color: rgba(244, 240, 227, 0.85);
-  flex-shrink: 0;
-}
-
-.upgrade-btn {
-  padding: 0.4rem 1rem;
-  border-radius: 8px;
-  border: none;
-  background: var(--text-highlight, #d9b382);
-  color: #15130d;
-  font-weight: 700;
-  font-size: 0.82rem;
-  cursor: pointer;
-  white-space: nowrap;
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .tab-content-area {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
-  padding-right: 0.5rem;
+  padding: clamp(1.1rem, 3vw, 2rem);
   scrollbar-width: thin;
-  scrollbar-color: rgba(194, 197, 170, 0.4) transparent;
+  scrollbar-color: rgba(194, 197, 170, 0.35) transparent;
 }
 
 .tab-panel {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  animation: fadeIn 0.3s ease;
-  max-width: 760px;
+  gap: 2rem;
+  max-width: 780px;
   margin: 0 auto;
   width: 100%;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
+/* Section blocks: separated by a hairline, no boxes */
+.block { padding-top: 1.75rem; border-top: 1px solid var(--line); }
+.block.first { padding-top: 0; border-top: none; }
+.block-title {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.block-title.tight { margin: 0; }
+.lead { margin: 0; font-size: 0.9rem; }
 
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* ===== Overview hero ===================================================== */
+.hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2rem;
+  align-items: end;
 }
 
-/* Hero */
-.hero-card {
-  display: flex;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 16px;
-  padding: 1.5rem;
-  gap: 1.5rem;
-  align-items: center;
-  justify-content: space-between;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.hero-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.hero-acc-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.hero-icon {
-  width: 36px;
-  height: 36px;
-}
+.hero-main { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 
 .hero-value {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 2.4rem;
-  font-weight: 700;
-}
-
-.hero-divider {
-  width: 1px;
-  height: 60px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.hero-secondary {
-  display: flex;
-  gap: 2rem;
-}
-
-.hero-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  text-align: center;
-}
-
-.hero-sub-value {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: #f5f5dc;
-}
-
-.trend-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.75rem;
+  font-size: clamp(4rem, 11vw, 6.5rem);
   font-weight: 600;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.25);
-  width: fit-content;
+  letter-spacing: -0.05em;
+  line-height: 0.92;
+}
+.hero-value small {
+  font-size: 0.38em;
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-left: 0.12em;
+  opacity: 0.7;
 }
 
-.trend-pill.up {
-  color: #8fd97a;
-}
+.hero-sub { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; color: var(--ink-2); font-size: 0.95rem; }
+.hero-icon { width: 22px; height: 22px; }
 
-.trend-pill.down {
-  color: #ff8a80;
-}
+.trend { margin: 0; font-size: 0.88rem; color: var(--ink-3); }
+.trend.up { color: var(--win); }
+.trend.down { color: var(--loss); }
 
-.trend-pill.flat {
-  color: rgba(244, 240, 227, 0.6);
-}
-
-.stat-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: rgba(244, 240, 227, 0.6);
-}
-
-/* Sparkline */
-.sparkline-card {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.sparkline-svg {
-  width: 100%;
-  height: 50px;
-}
-
-.sparkline-last {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.78rem;
-  color: rgba(244, 240, 227, 0.6);
-  text-align: right;
-}
-
-/* Coach Digest */
-.coach-digest {
-  background: linear-gradient(135deg, rgba(106, 209, 63, 0.06), rgba(217, 179, 130, 0.04));
-  border: 1px solid rgba(217, 179, 130, 0.2);
-  border-radius: 14px;
-  padding: 1.25rem 1.4rem;
-}
-
-.digest-title {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-highlight, #d9b382);
-  margin: 0 0 0.75rem;
-}
-
-.digest-list {
-  margin: 0;
-  padding-left: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.digest-list li {
-  font-size: 0.88rem;
-  line-height: 1.5;
-  color: rgba(244, 240, 227, 0.85);
-}
-
-/* Recent Games */
-.section-title {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #f5f5dc;
-  margin: 0 0 0.75rem;
-}
-
-.recent-games {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1.25rem;
-}
-
-.recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.recent-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.15);
-  font-size: 0.85rem;
-}
-
-.recent-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.recent-dot.win {
-  background: #8fd97a;
-}
-
-.recent-dot.loss {
-  background: #ff8a80;
-}
-
-.recent-dot.draw {
-  background: #d9b36a;
-}
-
-.recent-opp {
-  font-weight: 600;
-  color: #f5f5dc;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recent-opening {
-  color: rgba(244, 240, 227, 0.5);
-  font-size: 0.78rem;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recent-acc {
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-
-/* Phase */
-.phase-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.phase-box {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.phase-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.phase-name {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: rgba(244, 240, 227, 0.9);
-  text-transform: capitalize;
-}
-
-.phase-icon-img {
-  width: 32px;
-  height: 32px;
-}
-
-.phase-bar-container {
-  height: 12px;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.phase-bar {
-  height: 100%;
-  border-radius: 6px;
-  transition: width 0.5s ease;
-}
-
-.phase-footer {
+.hero-facts, .facts { margin: 0; display: flex; flex-direction: column; }
+.hero-facts div, .facts div {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 2rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
 }
+.hero-facts div:first-child, .facts div:first-child { border-top: none; }
+.hero-facts dt, .facts dt { font-size: 0.88rem; color: var(--ink-2); }
+.hero-facts dd, .facts dd { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+.hero-facts { min-width: 14rem; }
 
-.phase-n {
-  font-size: 0.75rem;
-  color: rgba(244, 240, 227, 0.5);
-}
-
-.phase-val {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1.4rem;
-  font-weight: 700;
-}
-
-/* Move Buckets */
-.bucket-section {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1.25rem;
-}
-
-.bucket-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 0.75rem;
-}
-
-.bucket-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.75rem 0.5rem;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.15);
-}
-
-.bucket-card.empty {
-  opacity: 0.4;
-}
-
-.bucket-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: rgba(244, 240, 227, 0.5);
-}
-
-.bucket-val {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.bucket-n {
-  font-size: 0.68rem;
-  color: rgba(244, 240, 227, 0.4);
-}
-
-/* Move Classes */
-.move-bar-container {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1rem;
-}
-
-.move-bar {
-  display: flex;
-  width: 100%;
-  height: 1.8rem;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.move-bar-segment {
-  height: 100%;
-  transition: width 0.5s ease;
-}
-
-.move-bar-caption {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.78rem;
-  color: rgba(244, 240, 227, 0.6);
-  margin-top: 0.6rem;
-  font-family: "JetBrains Mono", monospace;
-}
-
-.move-bar-caption strong {
-  color: #f4f0e3;
-}
-
-.move-classes-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 1rem;
-}
-
-.move-class-box {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1.5rem 1rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  transition: transform 0.2s;
-}
-
-.move-class-box:hover {
-  transform: translateY(-2px);
-}
-
-.mc-icon-img {
-  width: 36px;
-  height: 36px;
-}
-
-.mc-label {
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.mc-numbers {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  margin-top: 0.2rem;
-}
-
-.mc-count {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #f5f5dc;
-}
-
-.mc-percent {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.72rem;
-  color: rgba(244, 240, 227, 0.5);
-}
-
-.mc-avg {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.72rem;
-  color: var(--text-highlight, #d9b382);
-  font-weight: 600;
-}
-
-/* Colors */
-.colors-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-}
-
-@media (max-width: 600px) {
-  .colors-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.color-card {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 16px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.color-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.color-swatch {
-  width: 24px;
-  height: 24px;
+/* ===== Chart ============================================================= */
+.chart { position: relative; height: 150px; }
+.chart-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.chart-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 5; vector-effect: non-scaling-stroke; }
+.chart-area { fill: var(--accent); opacity: 0.1; }
+.chart-line { fill: none; stroke: var(--accent); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.chart-dot {
+  position: absolute;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel-1, #262421);
+  box-shadow: 0 0 0 1px var(--accent);
+  transform: translate(-50%, -50%);
 }
+.chart-foot { display: flex; justify-content: space-between; gap: 1rem; margin-top: 0.7rem; font-size: 0.8rem; color: var(--ink-3); flex-wrap: wrap; }
 
-.color-swatch.white {
-  background: #f4f0e3;
+/* ===== Notes ============================================================= */
+.notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.notes li {
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 62ch;
 }
+.notes li:first-child { border-top: none; padding-top: 0; }
 
-.color-swatch.black {
-  background: #1a1a1a;
-  border: 1px solid #333;
+/* ===== Tables ============================================================ */
+.table { display: flex; flex-direction: column; }
+.trow {
+  display: grid;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.92rem;
 }
+.trow:first-child { border-top: none; }
+.trow.thead { font-size: 0.8rem; color: var(--ink-3); padding-top: 0; padding-bottom: 0.5rem; }
 
-.color-title {
-  font-family: 'Cormorant Garamond', serif;
-  color: #f5f5dc;
-  font-size: 1.2rem;
-  font-weight: 600;
+.recent-grid { grid-template-columns: 3.4rem minmax(0, 1fr) minmax(0, 1.2fr) 4.5rem; }
+.class-grid { grid-template-columns: 1.6rem minmax(0, 1fr) 4rem 4.5rem 4.5rem; }
+.piece-grid { grid-template-columns: 2rem 5.5rem minmax(0, 9rem) minmax(0, 1fr); }
+.og-grid { grid-template-columns: 3.4rem minmax(0, 1fr) 4rem 4rem; }
+.dg-grid { grid-template-columns: 3.4rem minmax(0, 1fr) 5rem 4rem; }
+
+.result { font-weight: 600; font-size: 0.88rem; }
+.result.win { color: var(--win); }
+.result.loss { color: var(--loss); }
+.result.draw { color: var(--draw); }
+
+.class-icon { width: 22px; height: 22px; }
+.piece-symbol { font-size: 1.7rem; line-height: 1; }
+.piece-acc { display: flex; align-items: center; gap: 0.8rem; }
+.piece-val { width: 3.6rem; text-align: right; font-weight: 600; flex-shrink: 0; }
+
+/* ===== Bars ============================================================== */
+.bar { flex: 1; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); overflow: hidden; display: block; }
+.bar-fill { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+.bar-fill.accent { background: var(--accent); }
+
+.phase-list { display: flex; flex-direction: column; }
+.phase-row {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) 4rem 5rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line);
+}
+.phase-row:first-child { border-top: none; padding-top: 0; }
+.phase-name { font-weight: 500; color: var(--ink); }
+.phase-val { text-align: right; font-weight: 600; font-size: 1.05rem; }
+.phase-n { font-size: 0.8rem; text-align: right; }
+
+/* Vertical columns for move-number buckets */
+.columns { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; align-items: end; }
+.column { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+.column.empty { opacity: 0.4; }
+.column-val { font-size: 0.95rem; font-weight: 600; }
+.column-track { width: 100%; max-width: 3.2rem; height: 110px; display: flex; align-items: flex-end; background: rgba(255, 255, 255, 0.05); border-radius: 6px; overflow: hidden; }
+.column-fill { width: 100%; border-radius: 6px 6px 0 0; transition: height 0.4s ease; }
+.column-label { font-size: 0.82rem; color: var(--ink-2); }
+.column-n { font-size: 0.74rem; }
+
+/* Stacked bar */
+.stack { display: flex; width: 100%; height: 14px; border-radius: 999px; overflow: hidden; gap: 2px; }
+.stack-seg { height: 100%; }
+
+/* ===== Colors / Stamina columns ========================================= */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.split.three { grid-template-columns: repeat(3, 1fr); }
+.split-col { display: flex; flex-direction: column; gap: 0.35rem; padding: 0 1.75rem; border-left: 1px solid var(--line); min-width: 0; }
+.split-col:first-child { padding-left: 0; border-left: none; }
+.split-col:last-child { padding-right: 0; }
+.split-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.9rem; }
+.swatch { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.swatch.white { background: #f4f0e3; }
+.swatch.black { background: #1a1a1a; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
+.big-num { font-size: clamp(2.2rem, 5vw, 3rem); font-weight: 600; letter-spacing: -0.04em; line-height: 1; margin-top: 0.8rem; }
+.split-col .block-title.tight { margin-bottom: 0.2rem; }
+.split-col .facts { margin-top: 1rem; }
+
+.wld-bar { display: flex; width: 100%; height: 8px; border-radius: 999px; overflow: hidden; gap: 2px; margin-top: 1rem; background: rgba(255, 255, 255, 0.05); }
+.wld-segment { height: 100%; transition: width 0.4s ease; }
+.wld-segment.win { background: var(--win); }
+.wld-segment.draw { background: var(--draw); }
+.wld-segment.loss { background: var(--loss); }
+.wld-legend { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-top: 0.6rem; font-size: 0.8rem; color: var(--ink-2); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.35rem; }
+.dot.win { background: var(--win); }
+.dot.draw { background: var(--draw); }
+.dot.loss { background: var(--loss); }
+
+/* ===== Openings ========================================================== */
+.callout {
   margin: 0;
+  padding: 0.2rem 0 0.2rem 1rem;
+  border-left: 3px solid var(--loss);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--ink-2);
 }
+.callout strong { color: var(--ink); }
 
-.color-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.color-stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.color-val {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #f5f5dc;
-}
-
-.wld-bar {
-  display: flex;
-  width: 100%;
-  height: 10px;
-  border-radius: 5px;
-  overflow: hidden;
-  margin-top: 0.5rem;
-  background: rgba(0, 0, 0, 0.3);
-}
-
-.wld-segment {
-  height: 100%;
-  transition: width 0.5s ease;
-}
-
-.wld-segment.win {
-  background: #8fd97a;
-}
-
-.wld-segment.draw {
-  background: #d9b36a;
-}
-
-.wld-segment.loss {
-  background: #ff8a80;
-}
-
-.wld-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  font-size: 0.75rem;
-  color: rgba(244, 240, 227, 0.6);
-  margin-top: 0.5rem;
-}
-
-.wld-legend .dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 4px;
-  vertical-align: middle;
-}
-
-.wld-legend .dot.win {
-  background: #8fd97a;
-}
-
-.wld-legend .dot.draw {
-  background: #d9b36a;
-}
-
-.wld-legend .dot.loss {
-  background: #ff8a80;
-}
-
-/* Pieces */
-.pieces-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1.5rem;
-}
-
-.piece-card {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 16px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  transition: transform 0.2s;
-}
-
-.piece-card:hover {
-  transform: translateY(-2px);
-}
-
-.piece-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.piece-symbol {
-  font-size: 2.5rem;
-  line-height: 1;
-}
-
-.piece-name {
-  font-family: 'Cormorant Garamond', serif;
-  color: #f5f5dc;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.piece-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.piece-stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.piece-acc-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.piece-icon {
-  width: 20px;
-  height: 20px;
-}
-
-.piece-val {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #f5f5dc;
-}
-
-.piece-bar-container {
-  height: 8px;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-top: auto;
-}
-
-.piece-bar {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.5s ease;
-}
-
-/* Openings */
-.worst-opening-callout {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.8rem 1rem;
-  background: rgba(255, 60, 60, 0.08);
-  border: 1px solid rgba(255, 100, 90, 0.25);
-  border-radius: 10px;
-  font-size: 0.85rem;
-  color: rgba(244, 240, 227, 0.85);
-  margin-bottom: 0.5rem;
-}
-
-.callout-icon {
-  font-size: 1.1rem;
-}
-
-.openings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.opening-block {
-  border-radius: 10px;
-  overflow: hidden;
-}
+.openings-list { display: flex; flex-direction: column; }
+.opening-block { border-top: 1px solid var(--line); }
+.opening-block:first-child { border-top: none; }
 
 .opening-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 4rem 1.2rem;
   align-items: center;
   gap: 1rem;
-  padding: 1rem 1.5rem;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid transparent;
-  transition: border-color 0.2s;
+  width: 100%;
+  padding: 0.9rem 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
-
-.opening-row:hover {
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.opening-rank {
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 700;
-  color: rgba(244, 240, 227, 0.4);
-  font-size: 0.9rem;
-  width: 30px;
-}
-
-.opening-name {
-  flex: 1;
-  font-weight: 600;
-  color: #f5f5dc;
-  font-size: 0.95rem;
-  word-break: break-word;
-}
-
-.opening-games {
-  font-family: "JetBrains Mono", monospace;
-  color: rgba(244, 240, 227, 0.5);
-  font-size: 0.85rem;
-  white-space: nowrap;
-}
-
-.opening-acc-container {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 0.3rem 0.6rem;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-.opening-acc-icon {
-  width: 20px;
-  height: 20px;
-}
-
-.opening-acc {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.expand-arrow {
-  color: rgba(244, 240, 227, 0.4);
-  transition: transform 0.2s;
-  font-size: 0.8rem;
-}
-
-.expand-arrow.open {
-  transform: rotate(180deg);
-}
-
-.opening-detail {
-  padding: 1rem 1.5rem;
-  background: rgba(0, 0, 0, 0.12);
-  border-radius: 0 0 10px 10px;
-}
-
-.opening-wld-row {
-  display: flex;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
-}
-
-.wld-mini {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.wld-mini-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: rgba(244, 240, 227, 0.5);
-  font-weight: 600;
-}
-
-.wld-mini-vals {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.82rem;
-  display: flex;
-  gap: 0.6rem;
-}
-
-.wld-mini-vals .w {
-  color: #8fd97a;
-}
-
-.wld-mini-vals .d {
-  color: #d9b36a;
-}
-
-.wld-mini-vals .l {
-  color: #ff8a80;
-}
-
-.opening-games-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.opening-game-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.1);
-  font-size: 0.82rem;
-}
-
-.og-opp {
-  flex: 1;
-  font-weight: 600;
-  color: #f5f5dc;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.og-color {
-  font-size: 0.9rem;
-}
-
-.og-acc {
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 700;
-  color: rgba(244, 240, 227, 0.7);
-}
-
-/* Stamina */
-.stamina-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
-}
-
-.stamina-card {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 16px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.stamina-title {
-  font-family: 'Cormorant Garamond', serif;
-  color: #f5f5dc;
-  font-size: 1.2rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.stamina-games {
-  font-size: 0.8rem;
-  color: rgba(244, 240, 227, 0.5);
-  font-family: "JetBrains Mono", monospace;
-}
-
-.stamina-stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 0.5rem;
-}
-
-.stamina-val {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #f5f5dc;
-}
-
-.stamina-wld {
-  margin-top: 0.5rem;
-}
-
-/* Playstyle */
-.playstyle-panel {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2rem;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-}
-
-@media (min-width: 768px) {
-  .playstyle-panel {
-    flex-direction: row;
-  }
-
-  .radar-container {
-    flex: 0 0 300px;
-  }
-
-  .playstyle-traits {
-    flex: 1;
-    min-width: 250px;
-  }
-
-  .playstyle-note,
-  .playstyle-formulas {
-    flex-basis: 100%;
-  }
-}
-
-.radar-container {
-  width: 100%;
-  max-width: 300px;
-  aspect-ratio: 1/1;
-}
-
-.radar-svg {
-  width: 100%;
-  height: 100%;
-}
-
-.radar-label {
-  font-size: 8px;
-  letter-spacing: 0.5px;
-  fill: rgba(244, 240, 227, 0.8);
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.panel-meta {
-  flex-basis: 100%;
-  margin: 0;
-  text-align: center;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.78rem;
-  color: rgba(244, 240, 227, 0.5);
-}
-
-.playstyle-traits {
-  flex: 1;
-  min-width: 250px;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.trait-row {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.trait-name {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: rgba(244, 240, 227, 0.8);
-  width: 80px;
-}
-
-.trait-bar-container {
-  flex: 1;
-  height: 10px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.trait-bar {
-  height: 100%;
-  background: linear-gradient(90deg, #6ad13faa, #6ad13f);
-  border-radius: 5px;
-  transition: width 0.5s ease;
-}
-
-.trait-val {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1rem;
-  font-weight: 700;
-  color: #f5f5dc;
-  width: 30px;
-  text-align: right;
-}
-
-.playstyle-note {
-  width: 100%;
-  background: linear-gradient(135deg, rgba(106, 209, 63, 0.08), rgba(217, 179, 130, 0.05));
-  border: 1px solid rgba(217, 179, 130, 0.25);
-  border-radius: 14px;
-  padding: 1.25rem 1.4rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.playstyle-note-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.playstyle-archetype {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--text-highlight, #d9b382);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.playstyle-trait-tag {
-  font-size: 0.75rem;
-  color: rgba(244, 240, 227, 0.7);
-  background: rgba(0, 0, 0, 0.25);
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  font-weight: 600;
-}
-
-.playstyle-note-body {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  color: rgba(244, 240, 227, 0.88);
-}
-
-.playstyle-note-secondary {
-  margin: 0;
-  font-size: 0.82rem;
-  font-style: italic;
-  color: rgba(244, 240, 227, 0.6);
-}
-
-.playstyle-formulas {
-  width: 100%;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1rem 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.formulas-title {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #f5f5dc;
-  margin: 0 0 0.3rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.formula-row {
-  display: grid;
-  grid-template-columns: 90px 1fr;
-  gap: 0.75rem;
-  font-size: 0.82rem;
-  align-items: baseline;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.formula-row:last-of-type {
-  border-bottom: none;
-}
-
-.formula-axis {
-  font-weight: 700;
-  color: var(--text-highlight, #d9b382);
-}
-
-.formula-text {
-  color: rgba(244, 240, 227, 0.7);
-  line-height: 1.4;
-}
-
-.formulas-disclaimer {
-  margin: 0.5rem 0 0;
-  font-size: 0.78rem;
-  color: rgba(244, 240, 227, 0.55);
-  line-height: 1.5;
-  font-style: italic;
-}
-
-.formulas-disclaimer strong {
-  color: #f4f0e3;
-  font-style: normal;
-}
-
-/* Heatmap */
-.heatmap-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-}
-
-.heatmap-boards-container {
-  display: flex;
-  gap: 2rem;
-  width: 100%;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.heatmap-instance {
-  flex: 1;
-  min-width: 250px;
-  max-width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.heatmap-header {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-  gap: 0.25rem;
-}
-
-.section-subtitle {
-  font-family: 'Cormorant Garamond', serif;
-  color: #f5f5dc;
-  font-size: 1rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin: 0;
-  text-align: center;
-  width: 100%;
-}
-
-.section-subtitle.bad-color {
-  color: #ff8a80;
-}
-
-.section-subtitle.good-color {
-  color: #8fd97a;
-}
-
-.heatmap-total {
-  font-size: 0.75rem;
-  color: rgba(244, 240, 227, 0.5);
-  font-family: "JetBrains Mono", monospace;
-  text-align: center;
-  width: 100%;
-}
-
-.heatmap-board-wrapper {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-}
-
-.heatmap-board {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  aspect-ratio: 1/1;
-}
-
-.heatmap-rank-labels {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-around;
-  width: 12px;
-  color: rgba(244, 240, 227, 0.4);
-  font-size: 0.8rem;
-  font-family: "JetBrains Mono", monospace;
-}
-
-.heatmap-grid-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.heatmap-row {
-  display: flex;
-  flex: 1;
-}
+.opening-row:hover .opening-name { color: var(--accent); }
+.opening-name { font-weight: 600; font-size: 0.95rem; word-break: break-word; transition: color 0.15s ease; }
+.opening-games { font-size: 0.85rem; white-space: nowrap; }
+.opening-acc { font-weight: 600; text-align: right; }
+.chevron { color: var(--ink-3); transition: transform 0.2s ease; }
+.chevron.open { transform: rotate(180deg); }
+
+.opening-detail { padding: 0.25rem 0 1.1rem; }
+.opening-wld-row { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+.wld-mini { display: flex; flex-direction: column; gap: 0.2rem; }
+.wld-mini-label { font-size: 0.8rem; color: var(--ink-3); }
+.wld-mini-vals { display: flex; gap: 0.7rem; font-size: 0.9rem; font-weight: 600; }
+.wld-mini-vals .w { color: var(--win); }
+.wld-mini-vals .d { color: var(--draw); }
+.wld-mini-vals .l { color: var(--loss); }
+
+/* ===== Playstyle ========================================================= */
+.playstyle-top { display: grid; grid-template-columns: 300px 1fr; gap: 2rem; align-items: center; }
+.radar-container { width: 100%; max-width: 300px; aspect-ratio: 224 / 208; }
+.radar-svg { width: 100%; height: 100%; overflow: visible; }
+.radar-ring { stroke: var(--line); stroke-width: 1; }
+.radar-axis { stroke: var(--line); stroke-width: 1; }
+.radar-shape { fill: var(--accent); fill-opacity: 0.16; stroke: var(--accent); stroke-width: 1.75; stroke-linejoin: round; }
+.radar-dot { fill: var(--accent); }
+.radar-label { font-size: 8.5px; font-weight: 500; fill: var(--ink-2); }
+
+.playstyle-traits { display: flex; flex-direction: column; gap: 0.95rem; min-width: 0; }
+.trait-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) 2rem; align-items: center; gap: 0.9rem; }
+.trait-name { font-size: 0.92rem; color: var(--ink-2); }
+.trait-val { text-align: right; font-weight: 600; }
+
+.note-title { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -0.02em; color: var(--ink); }
+.tag { margin: 0.2rem 0 0.9rem; font-size: 0.85rem; }
+.prose { margin: 0 0 0.7rem; max-width: 62ch; font-size: 0.95rem; line-height: 1.6; color: var(--ink-2); }
+
+.formulas summary { cursor: pointer; font-size: 0.95rem; font-weight: 600; color: var(--ink); list-style: none; display: flex; align-items: center; gap: 0.5rem; }
+.formulas summary::-webkit-details-marker { display: none; }
+.formulas summary::after { content: "+"; color: var(--ink-3); font-weight: 500; }
+.formulas[open] summary::after { content: "−"; }
+.formulas[open] summary { margin-bottom: 0.9rem; }
+.formula-row { display: grid; grid-template-columns: 6.5rem 1fr; gap: 1rem; padding: 0.6rem 0; border-top: 1px solid var(--line); font-size: 0.88rem; line-height: 1.5; }
+.formula-axis { font-weight: 600; color: var(--ink); }
+.formula-text { color: var(--ink-2); }
+.fineprint { margin: 0.7rem 0 0; font-size: 0.82rem; line-height: 1.5; color: var(--ink-3); }
+
+/* ===== Heatmap =========================================================== */
+.heatmap-panel { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; }
+.heatmap-boards-container { display: flex; gap: 2.25rem; width: 100%; justify-content: center; flex-wrap: wrap; }
+.heatmap-instance { flex: 1; min-width: 240px; max-width: 360px; display: flex; flex-direction: column; gap: 0.8rem; }
+.heatmap-header { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.heatmap-header .muted { font-size: 0.82rem; }
+.bad-color { color: var(--loss); }
+.good-color { color: var(--win); }
+
+.heatmap-board { display: flex; gap: 8px; width: 100%; }
+.heatmap-rank-labels { display: flex; flex-direction: column; justify-content: space-around; width: 10px; padding-bottom: 20px; box-sizing: border-box; color: var(--ink-3); font-size: 0.75rem; }
+.heatmap-grid-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.heatmap-grid { display: flex; flex-direction: column; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden; }
+.heatmap-row { display: flex; flex: 1; }
 
 .heatmap-square {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
-  font-weight: 800;
+  font-size: 0.85rem;
+  font-weight: 700;
   color: #fff;
-  transition: all 0.2s;
   cursor: pointer;
   position: relative;
   border: none;
@@ -2430,176 +1489,57 @@
   margin: 0;
   font-family: inherit;
 }
+.heatmap-square.light { background: var(--board-light, #f0d9b5); }
+.heatmap-square.dark { background: var(--board-dark, #b58863); }
+.heatmap-square.bad.active { background: color-mix(in srgb, #ff2828 calc(var(--intensity) * 70%), var(--board-dark, #b58863)); }
+.heatmap-square.bad.light.active { background: color-mix(in srgb, #ff2828 calc(var(--intensity) * 70%), var(--board-light, #f0d9b5)); }
+.heatmap-square.good.active { background: color-mix(in srgb, #4fbf2c calc(var(--intensity) * 70%), var(--board-dark, #b58863)); }
+.heatmap-square.good.light.active { background: color-mix(in srgb, #4fbf2c calc(var(--intensity) * 70%), var(--board-light, #f0d9b5)); }
+.heatmap-square:hover, .heatmap-square:focus-visible { outline: 2px solid #fff; outline-offset: -2px; z-index: 2; }
+.heatmap-square.selected { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 2; }
+.sq-count { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75); }
 
-.heatmap-square.light {
-  background: var(--board-light, #f0d9b5);
-}
+.heatmap-file-labels { display: flex; justify-content: space-around; height: 20px; align-items: flex-end; color: var(--ink-3); font-size: 0.75rem; }
 
-.heatmap-square.dark {
-  background: var(--board-dark, #b58863);
-}
+.heatmap-drilldown { width: 100%; max-width: 520px; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+.drilldown-title { margin: 0 0 0.75rem; font-size: 1rem; font-weight: 600; color: var(--ink); }
 
-.heatmap-square.bad.active {
-  background: color-mix(in srgb, #ff2828 calc(var(--intensity) * 60%), var(--board-dark, #b58863));
-  box-shadow: inset 0 0 15px color-mix(in srgb, red calc(var(--intensity) * 80%), transparent);
-}
-
-.heatmap-square.bad.light.active {
-  background: color-mix(in srgb, #ff2828 calc(var(--intensity) * 60%), var(--board-light, #f0d9b5));
-}
-
-.heatmap-square.good.active {
-  background: color-mix(in srgb, #6ad13f calc(var(--intensity) * 60%), var(--board-dark, #b58863));
-  box-shadow: inset 0 0 15px color-mix(in srgb, green calc(var(--intensity) * 80%), transparent);
-}
-
-.heatmap-square.good.light.active {
-  background: color-mix(in srgb, #6ad13f calc(var(--intensity) * 60%), var(--board-light, #f0d9b5));
-}
-
-.heatmap-square:hover,
-.heatmap-square:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: -2px;
-  z-index: 2;
-  transform: scale(1.05);
-}
-
-.heatmap-square.selected {
-  outline: 2px solid var(--text-highlight, #fff);
-  outline-offset: -2px;
-  z-index: 2;
-}
-
-.sq-count {
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
-  z-index: 1;
-}
-
-.heatmap-file-labels {
-  display: flex;
-  justify-content: space-around;
-  height: 12px;
-  margin-top: 4px;
-  color: rgba(244, 240, 227, 0.4);
-  font-size: 0.8rem;
-  font-family: "JetBrains Mono", monospace;
-}
-
-.heatmap-drilldown {
-  width: 100%;
-  max-width: 500px;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 1rem 1.25rem;
-}
-
-.drilldown-title {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text-highlight, #f5f5dc);
-  margin: 0 0 0.75rem;
-}
-
-.drilldown-games {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.drilldown-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 0.5rem;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.12);
-  font-size: 0.82rem;
-}
-
-.dg-opp {
-  flex: 1;
-  font-weight: 600;
-  color: #f5f5dc;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dg-count {
-  color: rgba(244, 240, 227, 0.5);
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
-.dg-acc {
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 700;
-  color: rgba(244, 240, 227, 0.7);
-}
-
-.drilldown-empty {
-  color: rgba(244, 240, 227, 0.5);
-  font-size: 0.85rem;
-  font-style: italic;
-  margin: 0;
-}
-
-.heatmap-info {
-  text-align: center;
-  font-size: 0.85rem;
-  color: rgba(244, 240, 227, 0.5);
-  margin-top: 0.5rem;
-  max-width: 400px;
-}
-
-@media (max-width: 600px) {
-  .hero-card {
-    flex-direction: column;
-    gap: 1rem;
+/* ===== Small screens ===================================================== */
+@media (max-width: 760px) {
+  .insights-card { height: calc(100vh - 1.5rem); }
+  .dashboard-layout { flex-direction: column; }
+  .side-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    overflow-y: hidden;
   }
+  .nav-btn.active { box-shadow: inset 0 -2px 0 var(--accent); }
 
-  .hero-divider {
-    width: 100%;
-    height: 1px;
-  }
-
-  .hero-secondary {
-    width: 100%;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .opening-row {
-    flex-wrap: wrap;
-  }
-
-  .opening-name {
-    width: 100%;
-    flex: 1 1 100%;
-    order: 2;
-    margin-top: 0.5rem;
-  }
-
-  .opening-games {
-    order: 3;
-    margin-left: auto;
-  }
-
-  .opening-acc-container {
-    order: 4;
-  }
-
-  .opening-wld-row {
-    flex-direction: column;
-    gap: 0.75rem;
-  }
+  .hero { grid-template-columns: 1fr; gap: 1.25rem; }
+  .hero-facts { min-width: 0; }
+  .split, .split.three { grid-template-columns: 1fr; gap: 1.75rem; }
+  .split-col, .split-col:last-child { padding: 0; border-left: none; }
+  .split-col + .split-col { padding-top: 1.75rem; border-top: 1px solid var(--line); }
+  .playstyle-top { grid-template-columns: 1fr; justify-items: center; }
+  .playstyle-traits { width: 100%; }
+  .hide-sm { display: none; }
+  .recent-grid { grid-template-columns: 3.4rem minmax(0, 1fr) 4.5rem; }
+  .class-grid { grid-template-columns: 1.6rem minmax(0, 1fr) 3.5rem 4.5rem; }
+  .piece-grid { grid-template-columns: 2rem 5rem minmax(0, 1fr); }
+  .phase-row { grid-template-columns: 5.5rem minmax(0, 1fr) 3.4rem; }
+  .phase-n { display: none; }
+  .opening-row { grid-template-columns: minmax(0, 1fr) 3.6rem 1.2rem; }
+  .opening-games { display: none; }
+  .formula-row { grid-template-columns: 1fr; gap: 0.2rem; }
 }
 
-  @media (prefers-reduced-motion: reduce) {
-    .tab-panel {
-      animation: none;
-    }
-  }
+@media (prefers-reduced-motion: reduce) {
+  .bar-fill, .column-fill, .wld-segment, .chevron, .nav-btn { transition: none; }
+  .spinner-ring { animation-duration: 3s; }
+}
 </style>

@@ -2371,7 +2371,9 @@
           <div v-for="p in mobilePlayers" :key="p.side" class="mp-chip">
             <span class="player-color-dot" :class="p.side"></span>
             <span class="mp-name">{{ p.name }}</span>
-            <span v-if="p.isWinner" class="mp-crown">👑</span>
+              <svg v-if="p.isWinner" class="mp-crown" viewBox="0 0 24 24" role="img" aria-label="Winner">
+                <path d="M3 7.5l4.6 4.2L12 4.5l4.4 7.2L21 7.5 19.2 18H4.8L3 7.5zM5.2 20h13.6v1.5H5.2V20z" />
+              </svg>
             <span v-if="p.rating" class="mp-rating">{{ p.rating }}</span>
             <span v-if="p.captured.length || p.lead" class="mp-captured">
               <span
@@ -2397,7 +2399,9 @@
         <div class="player-bar" v-if="hasPlayerInfo && !isMobile">
           <span class="player-color-dot" :class="topPlayer.side"></span>
           <span class="player-name">{{ topPlayer.name }}</span>
-          <span v-if="topPlayer.isWinner" class="winner-crown">👑</span>
+          <svg v-if="topPlayer.isWinner" class="winner-crown" viewBox="0 0 24 24" role="img" aria-label="Winner">
+            <path d="M3 7.5l4.6 4.2L12 4.5l4.4 7.2L21 7.5 19.2 18H4.8L3 7.5zM5.2 20h13.6v1.5H5.2V20z" />
+          </svg>
           <span
             class="player-rating"
             v-if="topPlayer.rating"
@@ -2470,7 +2474,9 @@
         <div class="player-bar bottom" v-if="hasPlayerInfo && !isMobile">
           <span class="player-color-dot" :class="bottomPlayer.side"></span>
           <span class="player-name">{{ bottomPlayer.name }}</span>
-          <span v-if="bottomPlayer.isWinner" class="winner-crown">👑</span>
+          <svg v-if="bottomPlayer.isWinner" class="winner-crown" viewBox="0 0 24 24" role="img" aria-label="Winner">
+            <path d="M3 7.5l4.6 4.2L12 4.5l4.4 7.2L21 7.5 19.2 18H4.8L3 7.5zM5.2 20h13.6v1.5H5.2V20z" />
+          </svg>
           <span
             class="player-rating"
             v-if="bottomPlayer.rating"
@@ -3528,10 +3534,15 @@
     white-space: nowrap;
   }
 
-  .winner-crown {
-    font-size: 1.1rem;
-    filter: drop-shadow(0 0 4px gold);
+  .winner-crown,
+  .mp-crown {
+    fill: #f2c14e;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 3px rgba(242, 193, 78, 0.5));
   }
+
+  .winner-crown { width: 1.1rem; height: 1.1rem; }
+  .mp-crown { width: 0.85rem; height: 0.85rem; }
 
   .player-rating {
     font-family: "JetBrains Mono", monospace;
