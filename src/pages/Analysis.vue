@@ -22,6 +22,13 @@
     localStorage.setItem('chesslab_theme', newTheme)
   }, { immediate: true })
 
+  // ===== MOBILE / DESKTOP SWITCH ============================================
+  // Must match the CSS breakpoint (max-width: 767px)
+  const mobileQuery = window.matchMedia('(max-width: 767px)')
+  const isMobile = ref(mobileQuery.matches)
+  function onMobileQueryChange(e) { isMobile.value = e.matches }
+  const defaultTab = () => (isMobile.value ? 'analysis' : 'moves')
+
   let boardReady = false
   let engineReady = false
 
@@ -32,7 +39,8 @@
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('click', closeContextMenu)
     window.addEventListener('scroll', closeContextMenu, true)
-    activeTab.value = 'moves'
+    mobileQuery.addEventListener('change', onMobileQueryChange)
+    activeTab.value = defaultTab()
     await startEngine()
     engineReady = true
     if (route.query.fen) {
@@ -53,8 +61,10 @@
     window.removeEventListener('keydown', handleKeyDown)
     window.removeEventListener('click', closeContextMenu)
     window.removeEventListener('scroll', closeContextMenu, true)
+    mobileQuery.removeEventListener('change', onMobileQueryChange)
     clearTimeout(toastTimeout)
     clearTimeout(longPressTimer)
+    clearTimeout(navHoldTimer)
     document.body.style.overflow = ''
   })
 
@@ -98,11 +108,12 @@
   const boardRef = ref(null)
   const movesListRef = ref(null)
   const movesScrollRef = ref(null)
+  const stripRef = ref(null)
   const thirdSanLine = ref([])
   const soundOn = ref(true)
   const bestArrowSquares = ref(null)
   const toastMessage = ref('')
-  const activeTab = ref('moves')
+  const activeTab = ref(isMobile.value ? 'analysis' : 'moves')
   const contextMenu = ref({ visible: false, x: 0, y: 0, nodeId: null })
   const shareMenuOpen = ref(false)
   const lineStart = ref({ turn: 'w', num: 1 })
@@ -217,24 +228,37 @@
     localStorage.setItem(BEST_ARROW_STORAGE_KEY, String(enabled))
   })
 
+  // ===== TABS ================================================================
+  // Desktop: Moves / Report / Explorer (analysis panel stays above)
+  // Mobile : Analysis / Report / Explorer (moves live in the strip)
   const panelTabs = [
     { id: 'moves', label: 'Moves' },
     { id: 'report', label: 'Report' },
     { id: 'explorer', label: 'Explorer' }
   ]
+  const mobileTabs = [
+    { id: 'analysis', label: 'Analysis' },
+    { id: 'report', label: 'Report' },
+    { id: 'explorer', label: 'Explorer' }
+  ]
+  const visibleTabs = computed(() => (isMobile.value ? mobileTabs : panelTabs))
 
   const activeTabIndex = computed(() =>
-    panelTabs.findIndex(t => t.id === activeTab.value)
+    visibleTabs.value.findIndex(t => t.id === activeTab.value)
   )
+
+  watch(isMobile, (mobile) => {
+    if (mobile && activeTab.value === 'moves') activeTab.value = 'analysis'
+    else if (!mobile && activeTab.value === 'analysis') activeTab.value = 'moves'
+    if (mobile) nextTick(centerActiveStrip)
+  })
 
   function cycleTab(direction) {
     const currentIndex = activeTabIndex.value
     if (currentIndex === -1) return
-
-    const nextIndex =
-      (currentIndex + direction + panelTabs.length) % panelTabs.length
-
-    activeTab.value = panelTabs[nextIndex].id
+    const tabs = visibleTabs.value
+    const nextIndex = (currentIndex + direction + tabs.length) % tabs.length
+    activeTab.value = tabs[nextIndex].id
   }
 
   let tabSwipeStart = null
@@ -245,8 +269,14 @@
       return
     }
 
+    // On desktop/tablet the analysis panel is not a tab, so don't hijack swipes there
+    if (!isMobile.value && event.target.closest('.analyze')) {
+      tabSwipeStart = null
+      return
+    }
+
     // Avoid interfering with buttons, scrollable analysis lines, etc.
-    if (event.target.closest('button, input, textarea, .pretty-scroll')) {
+    if (event.target.closest('button, input, textarea, .pretty-scroll, .move-strip')) {
       tabSwipeStart = null
       return
     }
@@ -553,6 +583,26 @@
     }
   })
 
+  // Mobile: both players share one row (white left, black right)
+  const mobilePlayers = computed(() => [
+    {
+      side: 'white',
+      name: whiteName.value,
+      rating: whiteRating.value,
+      isWinner: isWhiteWinner.value,
+      captured: capturedByWhite.value,
+      lead: materialDiff.value > 0 ? materialDiff.value : 0
+    },
+    {
+      side: 'black',
+      name: blackName.value,
+      rating: blackRating.value,
+      isWinner: isBlackWinner.value,
+      captured: capturedByBlack.value,
+      lead: materialDiff.value < 0 ? -materialDiff.value : 0
+    }
+  ])
+
   let longPressTimer = null
   let longPressTriggered = false
   let toastTimeout = null
@@ -607,6 +657,149 @@
     walk(moveTree, 1)
     return rows
   })
+
+  // ===== MOBILE MOVES STRIP ==================================================
+  // Shows the active line: the path to the current move, continued along the
+  // main line. If a variation exists at a branch point, a small separator is
+  // shown (fork chip on the main line, dashed divider inside the variation).
+  const stripItems = computed(() => {
+    treeVersion.value
+    const cur = currentNode.value
+    const path = []
+    for (let n = cur; n.parent; n = n.parent) path.unshift(n)
+    let tail = cur
+    while (tail.children.length) {
+      tail = tail.children[0]
+      path.push(tail)
+    }
+    if (!path.length) return []
+
+    const fenParts = (moveTree.fen || '').split(' ')
+    const startFull = Number(fenParts[5]) || 1
+    const startPly = (startFull - 1) * 2 + (fenParts[1] === 'b' ? 2 : 1)
+
+    const items = []
+    let prev = moveTree
+    let inVariant = false
+    let afterSep = false
+    path.forEach((node, i) => {
+      if (prev.children.length > 1) {
+        const mainChild = prev.children[0]
+        const isVariantStep = node !== mainChild
+        const alt = isVariantStep ? mainChild : prev.children[1]
+        items.push({ kind: 'sep', key: `s-${prev.id}`, altId: alt.id, divider: isVariantStep })
+        afterSep = true
+      }
+      if (node !== node.parent.children[0]) inVariant = true
+      const ply = startPly + i
+      const isWhite = ply % 2 === 1
+      items.push({
+        kind: 'move',
+        key: `m-${node.id}`,
+        node,
+        num: Math.ceil(ply / 2),
+        isWhite,
+        showNum: isWhite || i === 0 || afterSep,
+        variant: inVariant
+      })
+      afterSep = false
+      prev = node
+    })
+    return items
+  })
+
+  function centerActiveStrip() {
+    const el = stripRef.value
+    if (!el) return
+    const active = el.querySelector('.strip-cell.active')
+    if (!active) {
+      el.scrollTo({ left: 0, behavior: 'smooth' })
+      return
+    }
+    const target = active.offsetLeft - (el.clientWidth - active.offsetWidth) / 2
+    el.scrollTo({ left: Math.max(0, target), behavior: 'smooth' })
+  }
+
+  // Tap = previous/next, hold = jump to start/end
+  let navHoldTimer = null
+  let navHoldFired = false
+  function navDown(kind) {
+    navHoldFired = false
+    clearTimeout(navHoldTimer)
+    navHoldTimer = setTimeout(() => {
+      navHoldFired = true
+      if (navigator.vibrate) navigator.vibrate(8)
+      if (kind === 'prev') goToStart()
+      else goToEnd()
+    }, 450)
+  }
+  function navUp() { clearTimeout(navHoldTimer) }
+  function navClick(kind) {
+    if (navHoldFired) { navHoldFired = false; return }
+    if (kind === 'prev') undoAccuracy()
+    else redoAccuracy()
+  }
+
+  // ===== TREE EDITING ========================================================
+  function removeSubtree(node) {
+    const parent = node.parent
+    if (parent) {
+      const idx = parent.children.indexOf(node)
+      if (idx !== -1) parent.children.splice(idx, 1)
+    }
+    const ids = []
+    ;(function collect(n) { ids.push(n.id); for (const c of n.children) collect(c) })(node)
+    for (const id of ids) delete nodeMap[id]
+  }
+
+  function isInVariation(node) {
+    let n = node
+    while (n && n.parent) {
+      if (n.parent.children[0] !== n) return true
+      n = n.parent
+    }
+    return false
+  }
+
+  // Keep only the main line (drop every non-first child in the whole tree)
+  function pruneAllVariations() {
+    let n = moveTree
+    while (n) {
+      while (n.children.length > 1) removeSubtree(n.children[n.children.length - 1])
+      n = n.children[0] ?? null
+    }
+  }
+
+  // Single place where a played move becomes the current node.
+  // Mobile rule: at most ONE variation exists in the game.
+  //  - on the main line: a different move becomes the (only) variation,
+  //    replacing any variation that existed before
+  //  - inside the variation: a different move overwrites what came after
+  function attachMove(sanMove, uci) {
+    const parent = currentNode.value
+    const existing = parent.children.find(c => c.uci === uci)
+    if (existing) {
+      currentNode.value = existing
+      return existing
+    }
+    if (isMobile.value && parent.children.length > 0) {
+      if (isInVariation(parent)) {
+        for (const child of [...parent.children]) removeSubtree(child)
+      } else {
+        pruneAllVariations()
+      }
+      if (bestVariation.value && !nodeMap[bestVariation.value.nodeId]) bestVariation.value = null
+    }
+    const newNode = {
+      id: nodeIdCounter++, san: sanMove.san, uci, fen: chess.fen(),
+      accuracy: null, analysisData: null, parent, children: []
+    }
+    nodeMap[newNode.id] = newNode
+    parent.children.push(newNode)
+    currentNode.value = newNode
+    if (!isImporting.value) treeVersion.value++
+    return newNode
+  }
 
   function deleteMove(nodeId) {
     const node = nodeMap[nodeId]
@@ -874,7 +1067,10 @@
   watch(currentNode, () => {
     recalcCapturedPieces()
     rebuildEvalHistory()
-    nextTick(scrollActiveMoveIntoView)
+    nextTick(() => {
+      scrollActiveMoveIntoView()
+      centerActiveStrip()
+    })
   })
   watch(treeVersion, () => { rebuildEvalHistory() })
 
@@ -921,7 +1117,7 @@
 
   function startReview() {
     isReportMaximized.value = false
-    activeTab.value = 'moves'
+    activeTab.value = defaultTab()
   }
 
   function handleBothMoves(move) {
@@ -938,19 +1134,7 @@
       return
     }
     soundForLastMove(sanMove)
-    const existing = currentNode.value.children.find(c => c.uci === uci)
-    if (existing) {
-      currentNode.value = existing
-    } else {
-      const newNode = {
-        id: nodeIdCounter++, san: sanMove.san, uci, fen: chess.fen(),
-        accuracy: null, analysisData: null, parent: currentNode.value, children: []
-      }
-      nodeMap[newNode.id] = newNode
-      currentNode.value.children.push(newNode)
-      currentNode.value = newNode
-      treeVersion.value++
-    }
+    attachMove(sanMove, uci)
     movesListUCI.value.push(uci)
     recalcCapturedPieces()
     requestAnalysisForNewMove()
@@ -1153,7 +1337,11 @@
     height.value = 50 - (cp.value / 800) * 50
   }
 
-  function flipBoard() { boardAPI.value.toggleOrientation(); rotate.value += 180 }
+  function flipBoard() {
+    if (!boardAPI.value) return
+    boardAPI.value.toggleOrientation()
+    rotate.value += 180
+  }
 
   // MOVE ICONS (inline SVG, colors come from accuracyColors) 
   const ICON_STROKE = 'fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"'
@@ -1179,10 +1367,12 @@
   }
 
   const GLOW_ICONS = ['brilliant', 'great', 'best']
+  const symbolCache = {}
 
-    function accuracySymbol(acc) {
+  function accuracySymbol(acc) {
     const body = ICON_BODY[acc]
     if (!body) return undefined
+    if (symbolCache[acc]) return symbolCache[acc]
     const c = accuracyColors[acc]
     const hasGlow = GLOW_ICONS.includes(acc)
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 72 72">
@@ -1212,7 +1402,9 @@
       </g>
       <g filter="url(#sym)">${body}</g>
     </svg>`
-    return 'data:image/svg+xml,' + encodeURIComponent(svg)
+    const url = 'data:image/svg+xml,' + encodeURIComponent(svg)
+    symbolCache[acc] = url
+    return url
   }
 
   function accuracyToClass(acc) {
@@ -1346,18 +1538,7 @@
     }
     if (!sanMove) return
     soundForLastMove(sanMove)
-    const existing = currentNode.value.children.find(c => c.uci === uci)
-    if (existing) {
-      currentNode.value = existing
-    } else {
-      const newNode = {
-        id: nodeIdCounter++, san: sanMove.san, uci, fen: chess.fen(),
-        accuracy: null, analysisData: null, parent: currentNode.value, children: []
-      }
-      nodeMap[newNode.id] = newNode
-      currentNode.value.children.push(newNode)
-      currentNode.value = newNode
-    }
+    attachMove(sanMove, uci)
     movesListUCI.value.push(uci)
     boardAPI.value.setPosition(chess.fen())
     treeVersion.value++
@@ -1456,19 +1637,7 @@
     }
     if (!sanMove) return false
     const normalizedUci = `${from}${to}${promotion ?? ''}`
-    const existing = currentNode.value.children.find(c => c.uci === normalizedUci)
-    if (existing) {
-      currentNode.value = existing
-    } else {
-      const newNode = {
-        id: nodeIdCounter++, san: sanMove.san, uci: normalizedUci, fen: chess.fen(),
-        accuracy: null, analysisData: null, parent: currentNode.value, children: []
-      }
-      nodeMap[newNode.id] = newNode
-      currentNode.value.children.push(newNode)
-      currentNode.value = newNode
-      if (!isImporting.value) treeVersion.value++
-    }
+    attachMove(sanMove, normalizedUci)
     movesListUCI.value.push(normalizedUci)
     recalcCapturedPieces()
     return sanMove
@@ -2153,6 +2322,9 @@
     v-model:showBestArrow="showBestArrow"
     v-model:boardTheme="currentTheme"
     @depthChanged="onDepthChange"
+    @flipBoard="flipBoard"
+    @copyPgn="copyPGN"
+    @copyFen="copyFEN"
   />
 
   <Transition name="loading-fade">
@@ -2192,14 +2364,37 @@
   <div class="grid-layout">
     <Title class="title-slot" />
 
+    <!-- MOBILE TOP BAR: both players in one row -->
+    <div v-if="isMobile" class="mobile-topbar">
+      <div class="mp-players">
+        <template v-if="hasPlayerInfo">
+          <div v-for="p in mobilePlayers" :key="p.side" class="mp-chip">
+            <span class="player-color-dot" :class="p.side"></span>
+            <span class="mp-name">{{ p.name }}</span>
+            <span v-if="p.isWinner" class="mp-crown">👑</span>
+            <span v-if="p.rating" class="mp-rating">{{ p.rating }}</span>
+            <span v-if="p.captured.length || p.lead" class="mp-captured">
+              <span
+                v-for="(piece, i) in p.captured"
+                :key="p.side + '-c-' + i"
+                class="captured-piece"
+                >{{ PIECE_UNICODE[piece] }}</span
+              >
+              <span v-if="p.lead" class="material-badge">+{{ p.lead }}</span>
+            </span>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <div class="board-area">
       <div
         class="board-wrapper"
         ref="boardRef"
         :style="{ '--last-move-highlight': lastMoveHighlightColor}"
       >
-        <!-- TOP player bar -->
-        <div class="player-bar" v-if="hasPlayerInfo">
+        <!-- TOP player bar (desktop) -->
+        <div class="player-bar" v-if="hasPlayerInfo && !isMobile">
           <span class="player-color-dot" :class="topPlayer.side"></span>
           <span class="player-name">{{ topPlayer.name }}</span>
           <span v-if="topPlayer.isWinner" class="winner-crown">👑</span>
@@ -2271,8 +2466,8 @@
           </div>
         </div>
 
-        <!-- BOTTOM player bar -->
-        <div class="player-bar bottom" v-if="hasPlayerInfo">
+        <!-- BOTTOM player bar (desktop) -->
+        <div class="player-bar bottom" v-if="hasPlayerInfo && !isMobile">
           <span class="player-color-dot" :class="bottomPlayer.side"></span>
           <span class="player-name">{{ bottomPlayer.name }}</span>
           <span v-if="bottomPlayer.isWinner" class="winner-crown">👑</span>
@@ -2299,8 +2494,111 @@
           </span>
         </div>
 
-        <!-- BOARD TOOLS -->
-        <div class="boardtools">
+        <!-- BOARD TOOLS: MOBILE (best-move button + prev / scrollable moves / next) -->
+        <div v-if="isMobile" class="boardtools mobile-tools">
+          <button
+            v-if="!inBestVariation"
+            class="bt-btn bt-ghost"
+            @click="playBestInstead"
+            :disabled="isImporting || !canPlayBest"
+            title="Play the best move instead"
+            aria-label="Play the best move instead"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />
+            </svg>
+          </button>
+          <button
+            v-else
+            class="bt-btn bt-ghost"
+            @click="removeBestVariation"
+            title="Delete this line and go back"
+            aria-label="Delete this line and go back"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            class="bt-btn bt-nav"
+            :disabled="isImporting || currentNode.parent === null"
+            @pointerdown="navDown('prev')"
+            @pointerup="navUp"
+            @pointerleave="navUp"
+            @pointercancel="navUp"
+            @click="navClick('prev')"
+            @contextmenu.prevent
+            title="Previous move (hold for start)"
+            aria-label="Previous move"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+
+          <div class="move-strip" ref="stripRef">
+            <template v-for="item in stripItems" :key="item.key">
+              <button
+                v-if="item.kind === 'sep'"
+                type="button"
+                class="strip-sep"
+                :class="{ divider: item.divider }"
+                @click="jumpToNode(item.altId)"
+                :aria-label="item.divider ? 'Back to main line' : 'Show variation'"
+                :title="item.divider ? 'Back to main line' : 'Show variation'"
+              >
+                <svg v-if="!item.divider" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+              </button>
+              <div
+                v-else
+                class="strip-cell"
+                :class="{ active: item.node === currentNode, variant: item.variant }"
+                @click="handleCellClick(item.node.id)"
+                @contextmenu.prevent="openContextMenu($event, item.node.id)"
+                @touchstart="handleTouchStart($event, item.node.id)"
+                @touchend="cancelLongPress"
+                @touchmove="cancelLongPress"
+              >
+                <span v-if="item.showNum" class="strip-num">{{ item.num }}{{ item.isWhite ? '.' : '...' }}</span>
+                <span class="strip-san">{{ prettyMove(item.node.san) }}</span>
+                <img
+                  v-if="item.node.accuracy"
+                  :src="accuracySymbol(item.node.accuracy)"
+                  class="strip-acc"
+                />
+              </div>
+            </template>
+            <span v-if="!stripItems.length" class="strip-empty">Make a move to start</span>
+          </div>
+
+          <button
+            type="button"
+            class="bt-btn bt-nav"
+            :disabled="isImporting || currentNode.children.length === 0"
+            @pointerdown="navDown('next')"
+            @pointerup="navUp"
+            @pointerleave="navUp"
+            @pointercancel="navUp"
+            @click="navClick('next')"
+            @contextmenu.prevent
+            title="Next move (hold for end)"
+            aria-label="Next move"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- BOARD TOOLS: DESKTOP -->
+        <div v-else class="boardtools">
           <div class="boardtools-left">
             <button
               v-if="!inBestVariation"
@@ -2412,8 +2710,17 @@
       </div>
     </div>
 
-    <div class="analysis-container">
-      <div class="analyze" :class="{ 'engine-active': isEngineEnabled }">
+    <div
+      class="analysis-container"
+      @touchstart.passive="onTabSwipeStart"
+      @touchend.passive="onTabSwipeEnd"
+    >
+      <!-- Desktop: always visible above the tabs. Mobile: shown only on the Analysis tab -->
+      <div
+        class="analyze"
+        :class="{ 'engine-active': isEngineEnabled }"
+        v-show="!isMobile || activeTab === 'analysis'"
+      >
         <div class="analyzis-header">
           <div class="analysis-title-row">
             <button
@@ -2447,27 +2754,6 @@
             </h2>
           </div>
           <div class="engine-controls">
-            <button
-              type="button"
-              class="control-icon-btn settings-toggle mobile-settings"
-              @click="isSettingsOpen = true"
-              title="Settings"
-              aria-label="Settings"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.9"
-                stroke-linecap="round"
-              >
-                <path
-                  d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"
-                />
-              </svg>
-            </button>
             <div
               class="pv-switcher"
               role="group"
@@ -2544,16 +2830,12 @@
         </div>
       </div>
 
-      <div
-        class="moves"
-        @touchstart.passive="onTabSwipeStart"
-        @touchend.passive="onTabSwipeEnd"
-      >
-        <!-- Vertical icon rail: uses zero vertical space -->
+      <div class="moves">
+        <!-- Tab rail: vertical on desktop AND mobile -->
         <nav class="tab-rail" role="tablist" aria-label="Panel tabs" :style="{ '--i': activeTabIndex }">
           <span class="tab-rail-indicator" aria-hidden="true"></span>
           <button
-            v-for="tab in panelTabs"
+            v-for="tab in visibleTabs"
             :key="tab.id"
             type="button"
             role="tab"
@@ -2564,8 +2846,12 @@
             :aria-label="tab.label"
             @click="activeTab = tab.id"
           >
+            <!-- analysis (mobile) -->
+            <svg v-if="tab.id === 'analysis'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
+            </svg>
             <!-- moves -->
-            <svg v-if="tab.id === 'moves'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg v-else-if="tab.id === 'moves'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 6h11M9 12h11M9 18h11" />
               <circle cx="4.5" cy="6" r="1" fill="currentColor" />
               <circle cx="4.5" cy="12" r="1" fill="currentColor" />
@@ -2579,10 +2865,25 @@
             <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z" />
             </svg>
+            <span class="rail-label">{{ tab.label }}</span>
+          </button>
+
+          <!-- Settings button at the bottom of the rail (mobile only) -->
+          <button
+            v-if="isMobile"
+            type="button"
+            class="control-icon-btn rail-settings"
+            @click="isSettingsOpen = true"
+            title="Settings"
+            aria-label="Settings"
+          >
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+              <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+            </svg>
           </button>
         </nav>
 
-        <div class="moves-body" ref="movesScrollRef">
+        <div class="moves-body" ref="movesScrollRef" v-show="!isMobile || activeTab !== 'analysis'">
           <div class="moveslist" v-if="activeTab === 'moves'" ref="movesListRef">
             <template v-for="row in renderedMoves" :key="row.key">
               <div
@@ -3297,6 +3598,76 @@
     margin-left: 0.25rem;
   }
 
+  /* ===== MOBILE TOP BAR (players in one row) ============================== */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    padding: 0.35rem 0.45rem;
+    background: linear-gradient(180deg, var(--panel-1, #262421), var(--panel-2, #1e1c18));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .mp-players {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    gap: 0.35rem;
+  }
+
+  .mp-chip {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 2.1rem;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0 0.5rem;
+    border-radius: 9px;
+    background: rgba(0, 0, 0, 0.26);
+    color: #f4f0e3;
+    font-size: 0.76rem;
+    overflow: hidden;
+  }
+
+  .mp-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mp-crown {
+    font-size: 0.8rem;
+    filter: drop-shadow(0 0 3px gold);
+    flex-shrink: 0;
+  }
+
+  .mp-rating {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.66rem;
+    color: rgba(244, 240, 227, 0.7);
+    flex-shrink: 0;
+  }
+
+  .mp-captured {
+    margin-left: auto;
+    min-width: 0;
+    max-width: 45%;
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .mp-captured .captured-piece { font-size: 0.68rem; }
+  .mp-captured .material-badge { font-size: 0.55rem; flex-shrink: 0; }
+
   .analysis-container {
     grid-area: analysis;
     display: flex;
@@ -3409,7 +3780,6 @@
 
   .desktop-settings { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
   .desktop-settings:hover { transform: translateY(-50%); }
-  .mobile-settings { display: none; }
 
   .engine-controls {
     margin-left: 0;
@@ -3752,6 +4122,9 @@
   .rail-btn.on { color: #c4ee9c; }
   .rail-btn svg { display: block; }
 
+  /* Labels are never shown (icons only) */
+  .rail-label { display: none; }
+
   .moveslist {
     margin: 8px 8px 8px;
     padding: 8px;
@@ -3960,6 +4333,133 @@
   .share-menu button:hover { background: rgba(255, 255, 255, 0.08); }
   .share-menu button + button { border-top: 1px solid rgba(255, 255, 255, 0.08); }
 
+  /* ===== MOBILE BOARD TOOLS + MOVES STRIP ================================= */
+  .boardtools.mobile-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0.3rem 0.4rem;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    background: rgba(0, 0, 0, 0.3);
+    flex: 0 0 auto;
+  }
+
+  .mobile-tools .bt-btn {
+    width: 2.4rem;
+    height: 2.4rem;
+    flex: 0 0 auto;
+  }
+
+  .mobile-tools .bt-nav {
+    background: rgba(255, 255, 255, 0.07);
+    color: #f4f0e3;
+  }
+
+  .move-strip {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 2.6rem;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0 0.3rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.32);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+  }
+
+  .move-strip::-webkit-scrollbar { display: none; }
+
+  .strip-cell {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    color: #e9e5d6;
+    font-size: 0.88rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    transition: background 0.13s ease, border-color 0.13s ease, color 0.13s ease;
+  }
+
+  .strip-cell.variant { color: #c3cdf5; }
+
+  .strip-cell.active {
+    color: #fff;
+    background: linear-gradient(145deg, rgba(103, 122, 228, 0.45), rgba(103, 122, 228, 0.25));
+    border-color: rgba(150, 166, 255, 0.55);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .strip-num {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: rgba(232, 232, 208, 0.45);
+  }
+
+  .strip-acc {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .strip-sep {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.8rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #d9b382;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .strip-sep:not(.divider) svg {
+    padding: 3px;
+    box-sizing: content-box;
+    border-radius: 6px;
+    background: rgba(217, 179, 130, 0.14);
+  }
+
+  .strip-sep.divider::before {
+    content: "";
+    height: 1.4rem;
+    border-left: 2px dashed rgba(217, 179, 130, 0.65);
+  }
+
+  .strip-empty {
+    padding: 0 0.5rem;
+    font-size: 0.78rem;
+    color: rgba(244, 240, 227, 0.4);
+    white-space: nowrap;
+  }
+
   .evalnum {
     font-family: "JetBrains Mono", monospace;
     position: absolute;
@@ -4061,7 +4561,7 @@
     padding: 0.6rem 1.2rem;
     border-radius: 999px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    z-index: 1000;
+    z-index: 10000;
   }
 
   .toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
@@ -4944,47 +5444,61 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
+  /* ========================================================================
+     MOBILE: one fixed screen, never scrolls
+     [ title bar                    ]
+     [ players                      ]
+     [ board + eval bar             ]
+     [ prev | scrolling moves | next ]
+     [ vertical tab rail | content  ]
+     ======================================================================== */
   @media (max-width: 767px) {
     .acc-badge { width: 19px; height: 19px; }
     .board-acc-icon { width: 6.5%; height: 6.5%; }
 
     .grid-layout {
+      --board-size: max(14rem, min(calc(100vw - 16px), calc(100vh - 20rem)));
+      position: fixed;
+      inset: 0;
       display: flex;
       flex-direction: column;
-      min-height: 100dvh;
+      width: 100%;
+      max-width: none;
+      margin: 0;
       padding: 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
       gap: 0;
+      overflow: hidden;
     }
 
+    @supports (height: 100dvh) {
+      .grid-layout {
+        --board-size: max(14rem, min(calc(100vw - 16px), calc(100dvh - 20rem)));
+      }
+    }
+
+    /* Flatten wrappers so every piece becomes a direct flex item */
     .board-area,
     .board-wrapper,
-    .analysis-container {
+    .moves {
       display: contents;
     }
 
-    .title-slot {
-      order: 0;
-      position: sticky;
-      top: 0;
-      z-index: 50;
-      background: linear-gradient(180deg, var(--panel-1, #262421), rgba(38, 36, 33, 0.96) 80%, transparent);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      padding: 0.35rem 0.6rem;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-    }
+    .mobile-topbar { order: 0; }
 
-    .player-bar { order: 1; padding: 0.22rem 0.55rem; margin: 0; font-size: 0.78rem; }
-
-    /* Board + thin eval bar: same row, no gap, bar is exactly the board's height */
     .board-row {
       order: 1;
+      flex: 0 0 auto;
       flex-direction: row;
       gap: 0;
       align-items: stretch;
+      justify-content: center;
     }
 
-    .board-col { position: relative; }
+    .board-col {
+      flex: 0 0 var(--board-size);
+      width: var(--board-size);
+    }
 
     .evalbar {
       order: -1;
@@ -4993,39 +5507,97 @@
       flex-shrink: 0;
     }
 
-   .evalbar-inner {
-    flex: 1;
-    border-radius: 6px 0 0 6px;
-  }
-
+    .evalbar-inner {
+      flex: 1;
+      border-radius: 6px 0 0 6px;
+    }
 
     .evalnum { display: none; }
 
     :deep(.cg-wrap) { border-radius: 0 6px 6px 0; }
 
-    .moves { order: 2; }
+    .boardtools.mobile-tools { order: 5; }
 
-    .analyze { order: 0; }
+    /* Bottom area: vertical tab rail on the left, content on the right */
+    .analysis-container {
+      order: 4;
+      flex: 1 1 0;
+      min-height: 0;
+      height: auto;
+      max-height: none;
+      flex-direction: row;
+      gap: 0;
+    }
 
-    .boardtools { order: 4; }
+    .tab-rail {
+      flex: 0 0 auto;
+      align-self: stretch;
+      width: 2.6rem;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.3rem 0;
+      border-right: 1px solid rgba(255, 255, 255, 0.07);
+      border-bottom: none;
+      box-shadow: none;
+      background: rgba(0, 0, 0, 0.28);
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
 
-    .board-wrapper { max-width: 100%; }
+    .tab-rail::-webkit-scrollbar { display: none; }
+    .tab-rail-indicator { display: none; }
 
-    .captured-pieces { padding-left: 0.3rem; }
-    .captured-piece { font-size: 0.72rem; }
-    .material-badge { font-size: 0.55rem; }
+    .rail-btn {
+      flex: 0 0 auto;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 10px;
+    }
+
+    .rail-btn.on {
+      background: linear-gradient(145deg, rgba(168, 217, 122, 0.24), rgba(106, 209, 63, 0.12));
+      box-shadow: inset 0 0 0 1px rgba(168, 217, 122, 0.3);
+    }
+
+    .rail-settings {
+      margin-top: auto;
+      width: 2rem;
+      height: 2rem;
+    }
+
+    /* Tab content area: takes whatever space is left and scrolls inside */
+    .analyze,
+    .moves-body {
+      order: 4;
+      flex: 1 1 0;
+      min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
+      -webkit-overflow-scrolling: touch;
+    }
 
     .analyze {
-      background: none;
-      box-shadow: none;
-      border: none;
-      padding: 0;
-      margin: 0;
+      width: 100%;
       max-width: none;
-      min-height: 0;
       max-height: none;
+      margin: 0;
+      padding: 0 0.5rem 0.5rem;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      box-sizing: border-box;
       overscroll-behavior: auto;
     }
+
+    .analyze.engine-active {
+      border: none;
+      box-shadow: inset 0 2px 0 rgba(106, 209, 63, 0.3);
+    }
+
+    .moves-body { overscroll-behavior: auto; }
 
     .move-data { padding: 0; }
 
@@ -5033,22 +5605,13 @@
       display: flex !important;
       flex-direction: column;
       justify-content: center;
-      padding: 0.45rem 0.35rem;
+      padding: 0.45rem 0.1rem 0.3rem;
       margin: 0;
       gap: 0.35rem;
     }
 
     .analyzis { display: none !important; }
     .analysis-title-row { min-height: 0; display: none !important; }
-
-    .desktop-settings { display: none; }
-
-    .mobile-settings {
-      display: inline-flex;
-      width: 1.9rem;
-      height: 1.9rem;
-      border-radius: 9px;
-    }
 
     .engine-controls {
       margin-left: 0;
@@ -5062,7 +5625,17 @@
     .depth-value { font-size: 0.76rem; }
     .engine-toggle .toggle-label { font-size: 0.68rem; }
 
-    .accuracydescribtion, .bestmove { display: none; }
+    .accuracydescribtion {
+      font-size: 0.95rem;
+      margin: 0.45rem 0 0.1rem;
+      padding: 0;
+    }
+
+    .bestmove {
+      font-size: 0.85rem;
+      margin: 0 0 0.3rem;
+      padding: 0;
+    }
 
     .line, .secondline {
       font-size: 0.74rem;
@@ -5082,31 +5655,6 @@
     @keyframes linePulse {
       0%, 100% { box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4); }
       50% { box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(106, 209, 63, 0.55); }
-    }
-
-    .moves {
-      --rail-btn: 2.1rem;
-      --rail-pad: 6px;
-      flex: 0 1 auto;
-      min-height: 300px;
-      max-height: 300px;
-      height: 300px;
-      max-width: none;
-      margin: 0;
-      border-radius: 0;
-    }
-
-    .moveslist {
-      padding: 5px;
-      gap: 3px;
-      margin: 5px 5px 5px;
-      overscroll-behavior: auto;
-    }
-
-    .move-cell {
-      min-height: 2rem;
-      padding: 0.28rem 0.55rem;
-      font-size: 0.85rem;
     }
 
     .report-header {
@@ -5142,7 +5690,8 @@
 
     .explorer {
       padding: 0.4rem 0.5rem 0.6rem;
-      min-height: 220px;
+      max-height: none;
+      min-height: 0;
     }
 
     .explorer-header { padding: 0.25rem 0.3rem 0.5rem; margin-bottom: 0.4rem; }
@@ -5163,37 +5712,5 @@
 
     .explorer-db-toggle { margin: 0 0.4rem 0.5rem; }
     .explorer-db-toggle button { padding: 0.32rem; font-size: 0.72rem; }
-
-    .boardtools {
-      position: sticky;
-      bottom: 0;
-      z-index: 40;
-      min-height: 2.6rem;
-      padding: 0.3rem 0.5rem calc(0.3rem + env(safe-area-inset-bottom, 0px));
-      margin-top: 0;
-      gap: 0.4rem;
-      flex-wrap: nowrap;
-    }
-
-    .boardtools {
-      grid-template-columns: auto 1fr auto;
-      gap: 0.5rem;
-    }
-
-    .boardtools-nav {
-      width: 100%;
-      gap: 0.2rem;
-    }
-
-    .boardtools-nav .bt-btn {
-      flex: 1;
-      width: auto;
-      height: 2.9rem;
-    }
-
-    .bt-ghost {
-      width: 2.5rem;
-      height: 2.5rem;
-    }
   }
 </style>
