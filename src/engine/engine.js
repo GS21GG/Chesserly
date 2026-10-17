@@ -412,7 +412,7 @@ function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = n
 const WIN_CURVE_K = 0.00368208 // Lichess win-chance curve (chess.com's is not public)
 
 // Points lost (0 to 1) limits. Change these to tune.
-const LIMIT_BEST = 0.005
+// "best" is not here: it is only given when the move is the engine's top choice.
 const LIMIT_EXCELLENT = 0.02
 const LIMIT_GOOD = 0.05
 const LIMIT_INACCURACY = 0.10
@@ -446,8 +446,8 @@ function winChance(score, moverIsWhite) {
     return 1 / (1 + Math.exp(-WIN_CURVE_K * cp))
 }
 
+// Used only for moves that are NOT the engine's top choice.
 function classifyByPoints(lost) {
-    if (lost <= LIMIT_BEST) return "best"
     if (lost <= LIMIT_EXCELLENT) return "excellent"
     if (lost <= LIMIT_GOOD) return "good"
     if (lost <= LIMIT_INACCURACY) return "inaccuracy"
