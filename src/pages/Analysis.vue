@@ -2494,32 +2494,8 @@
           </span>
         </div>
 
-        <!-- BOARD TOOLS: MOBILE (best-move button + prev / scrollable moves / next) -->
+        <!-- BOARD TOOLS: MOBILE (prev / scrollable moves / next) -->
         <div v-if="isMobile" class="boardtools mobile-tools">
-          <button
-            v-if="!inBestVariation"
-            class="bt-btn bt-ghost"
-            @click="playBestInstead"
-            :disabled="isImporting || !canPlayBest"
-            title="Play the best move instead"
-            aria-label="Play the best move instead"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />
-            </svg>
-          </button>
-          <button
-            v-else
-            class="bt-btn bt-ghost"
-            @click="removeBestVariation"
-            title="Delete this line and go back"
-            aria-label="Delete this line and go back"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-            </svg>
-          </button>
-
           <button
             type="button"
             class="bt-btn bt-nav"
@@ -2533,7 +2509,7 @@
             title="Previous move (hold for start)"
             aria-label="Previous move"
           >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <path d="M15 18l-6-6 6-6" />
             </svg>
           </button>
@@ -2591,7 +2567,7 @@
             title="Next move (hold for end)"
             aria-label="Next move"
           >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 18l6-6-6-6" />
             </svg>
           </button>
@@ -4337,32 +4313,45 @@
   .boardtools.mobile-tools {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.4rem;
     margin: 0;
-    padding: 0.3rem 0.4rem;
+    padding: 0.4rem 0.5rem;
     border-radius: 0;
     border-left: none;
     border-right: none;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.35);
     flex: 0 0 auto;
   }
 
   .mobile-tools .bt-btn {
-    width: 2.4rem;
-    height: 2.4rem;
+    width: 3.4rem;
+    height: 3rem;
     flex: 0 0 auto;
   }
 
   .mobile-tools .bt-nav {
-    background: rgba(255, 255, 255, 0.07);
-    color: #f4f0e3;
+    background: linear-gradient(145deg, rgba(168, 217, 122, 0.3), rgba(106, 209, 63, 0.18));
+    color: #fff;
+    border-radius: 12px;
+    box-shadow: inset 0 0 0 1.5px rgba(168, 217, 122, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+
+  .mobile-tools .bt-nav:active:not(:disabled) {
+    background: linear-gradient(145deg, rgba(168, 217, 122, 0.5), rgba(106, 209, 63, 0.32));
+    transform: scale(0.94);
+  }
+
+  .mobile-tools .bt-nav:disabled {
+    opacity: 0.35;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .move-strip {
     position: relative;
     flex: 1 1 0;
     min-width: 0;
-    height: 2.6rem;
+    height: 3rem;
     box-sizing: border-box;
     display: flex;
     align-items: center;
@@ -5457,7 +5446,7 @@
     .board-acc-icon { width: 6.5%; height: 6.5%; }
 
     .grid-layout {
-      --board-size: max(14rem, min(calc(100vw - 16px), calc(100vh - 20rem)));
+      --board-size: max(14rem, min(calc(100vw - 16px), calc(100vh - 20.5rem)));
       position: fixed;
       inset: 0;
       display: flex;
@@ -5473,7 +5462,7 @@
 
     @supports (height: 100dvh) {
       .grid-layout {
-        --board-size: max(14rem, min(calc(100vw - 16px), calc(100dvh - 20rem)));
+        --board-size: max(14rem, min(calc(100vw - 16px), calc(100dvh - 20.5rem)));
       }
     }
 
