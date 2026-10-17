@@ -5516,7 +5516,7 @@
 
     :deep(.cg-wrap) { border-radius: 0 6px 6px 0; }
 
-    .boardtools.mobile-tools { order: 2; }
+    .boardtools.mobile-tools { order: 5; }
 
     /* Bottom area: vertical tab rail on the left, content on the right */
     .analysis-container {
