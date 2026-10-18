@@ -1232,8 +1232,12 @@
 
   function resetAccuracy() { resetBoard(); isAccuracy.value = " "; color.value = " "; moveData.value = null }
 
+  let accuracyRun = 0
+
   async function getAccuracy() {
+    const run = ++accuracyRun
     await cancelAnalysis()
+    if (run !== accuracyRun) return
     const cached = currentNode.value.analysisData
     const requiresMultiPV3 = !isImporting.value && isEngineEnabled.value
     const hasRequiredMultiPV = !requiresMultiPV3 || !currentNode.value.san || (cached?.topMoves?.length >= analysisMultiPV.value)
@@ -1304,7 +1308,7 @@
       chess.isCheckmate(),
       chess.isStalemate()
     )
-    isAnalyzing.value = false
+    if (run === accuracyRun) isAnalyzing.value = false
   }
 
   function onDepthChange() {
