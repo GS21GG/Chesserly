@@ -3510,7 +3510,7 @@
     color: #f4f0e3;
     font-family: "Inter", sans-serif;
     font-size: clamp(0.82rem, 1.8vw, 0.95rem);
-    width: 100%;
+    width: 100%;                                      
     box-sizing: border-box;
   }
 

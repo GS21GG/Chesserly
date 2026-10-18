@@ -1,11 +1,11 @@
 <script setup>
-  import { ref, computed, watch, onMounted } from 'vue'
+  import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
   import Title from '../assets/Title.vue'
   import { Chess } from 'chess.js'
   import { useRouter } from 'vue-router'
   import { auth, db } from '../firebase'
   import { onAuthStateChanged } from 'firebase/auth'
-  import { 
+  import {
     collection, addDoc, query, where, getDocs, serverTimestamp,
     deleteDoc, doc, orderBy
   } from 'firebase/firestore'
@@ -23,8 +23,23 @@
 
   watch(username, (val) => localStorage.setItem(USERNAME_STORAGE_KEY, val))
 
-  const year = ref('')
-  const month = ref('month')
+  const sources = [
+    { value: 'chess.com', label: 'Chess.com' },
+    { value: 'lichess', label: 'Lichess' },
+    { value: 'pgn', label: 'PGN' },
+    { value: 'fen', label: 'FEN' },
+    { value: 'library', label: 'Library' }
+  ]
+
+  // --- Month browser state ---
+  const now = new Date()
+  const NOW_YEAR = now.getFullYear()
+  const NOW_MONTH = now.getMonth() + 1
+  const MIN_YEAR = NOW_YEAR - 10
+
+  const periodYear = ref(NOW_YEAR)
+  const periodMonth = ref(NOW_MONTH)
+
   const games = ref([])
   const selectedGame = ref(null)
   const loading = ref(false)
@@ -46,23 +61,29 @@
   // --- Browsing / filtering state (shared by fetched games + library) ---
   const tcFilter = ref('all')
   const opponentSearch = ref('')
-  watch(importSite, () => {
-    tcFilter.value = 'all'
+
+  // --- Simple computed helpers for the UI ---
+  const isOnlineSource = computed(() => importSite.value === 'chess.com' || importSite.value === 'lichess')
+
+  const monthShort = computed(() =>
+    new Date(periodYear.value, periodMonth.value - 1, 1).toLocaleString('default', { month: 'short' })
+  )
+  const monthLabel = computed(() =>
+    new Date(periodYear.value, periodMonth.value - 1, 1).toLocaleString('default', { month: 'long' })
+  )
+
+  const isLatestPeriod = computed(() =>
+    periodYear.value === NOW_YEAR && periodMonth.value === NOW_MONTH
+  )
+
+  const canGoPrevMonth = computed(() => periodYear.value > MIN_YEAR || periodMonth.value > 1)
+  const canGoNextMonth = computed(() => !isLatestPeriod.value)
+  const canGoPrevYear = computed(() => periodYear.value > MIN_YEAR)
+  const canGoNextYear = computed(() => periodYear.value < NOW_YEAR)
+
+  function clearSearch() {
     opponentSearch.value = ''
-  })
-
-  const monthNames = Array.from({ length: 12 }, (_, i) => {
-    return new Date(2000, i, 1).toLocaleString('default', { month: 'long' })
-  })
-  const yearOptions = Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - i)
-
-  onMounted(() => {
-    onAuthStateChanged(auth, (user) => {
-      currentUser.value = user
-      if (user) fetchSavedGames()
-      else savedGames.value = []
-    })
-  })
+  }
 
   // --- Time control normalization (Chess.com + Lichess use different names) ---
   const TC_ORDER = ['ultrabullet', 'bullet', 'blitz', 'rapid', 'classical', 'correspondence', 'daily', 'unknown']
@@ -145,7 +166,7 @@
   }
 
   async function fetchSavedGames() {
-    if (!currentUser.value) return 
+    if (!currentUser.value) return
     try {
       const q = query(
         collection(db, `users/${currentUser.value.uid}/games`),
@@ -156,24 +177,24 @@
         const data = d.data()
         return {
           id: d.id,
-          pgn: data.pgn || "",
-          time_class: data.time_class || "unknown",
+          pgn: data.pgn || '',
+          time_class: data.time_class || 'unknown',
           savedAt: data.createdAt?.toMillis?.() || 0,
           date: typeof data.playedAt === 'number' ? new Date(data.playedAt) : null,
           white: {
-            username: data.white?.username || "White",
+            username: data.white?.username || 'White',
             rating: data.white?.rating || 0,
-            result: data.white?.result || "unknown"
+            result: data.white?.result || 'unknown'
           },
           black: {
-            username: data.black?.username || "Black",
+            username: data.black?.username || 'Black',
             rating: data.black?.rating || 0,
-            result: data.black?.result || "unknown"
+            result: data.black?.result || 'unknown'
           }
         }
       })
     } catch (e) {
-      console.error("Failed to fetch saved games:", e)
+      console.error('Failed to fetch saved games:', e)
       savedGames.value = []
     }
   }
@@ -210,7 +231,7 @@
       await fetchSavedGames()
     } catch (e) {
       console.error('Auto-save failed:', e)
-      saveStatus.value = 'Failed to save game.'
+      saveStatus.value = 'Could not save this game.'
       setTimeout(() => saveStatus.value = '', 2500)
     }
   }
@@ -227,17 +248,14 @@
 
   const pgnText = ref('')
   const fenText = ref('')
-  const isPasteSource = computed(() =>
-    importSite.value === 'pgn' || importSite.value === 'fen' || importSite.value === 'library'
-  )
 
   // --- Helper to clean PGNs before chess.js parses them ---
-  function cleanPgn(pgn) { 
+  function cleanPgn(pgn) {
     if (!pgn) return ''
     let cleaned = pgn
-      .replace(/\{[^}]*\}/g, ' ')   // Remove comments
-      .replace(/\$\d+/g, ' ')        // Remove NAGs
-      .replace(/\s*e\.p\.\s*/g, ' ') // Remove en passant annotations
+      .replace(/\{[^}]*\}/g, ' ')    // Remove comments
+      .replace(/\$\d+/g, ' ')         // Remove NAGs
+      .replace(/\s*e\.p\.\s*/g, ' ')  // Remove en passant annotations
 
     // Remove nested variations
     let prev
@@ -268,11 +286,11 @@
     else if (lGame.winner === 'black') { wRes = 'lose'; bRes = 'win' }
     const ts = lGame.lastMoveAt || lGame.createdAt
     return {
-      pgn: cleanPgn(lGame.pgn || ""),
-      time_class: lGame.speed || "unknown",
+      pgn: cleanPgn(lGame.pgn || ''),
+      time_class: lGame.speed || 'unknown',
       date: ts ? new Date(ts) : null,
-      white: { username: lGame.players?.white?.user?.name || "Anonymous", rating: lGame.players?.white?.rating || 0, result: wRes },
-      black: { username: lGame.players?.black?.user?.name || "Anonymous", rating: lGame.players?.black?.rating || 0, result: bRes }
+      white: { username: lGame.players?.white?.user?.name || 'Anonymous', rating: lGame.players?.white?.rating || 0, result: wRes },
+      black: { username: lGame.players?.black?.user?.name || 'Anonymous', rating: lGame.players?.black?.rating || 0, result: bRes }
     }
   }
 
@@ -358,7 +376,7 @@
       c.loadPgn(cleanedPgn)
       if (c.history().length > 0) parsedSuccessfully = true
     } catch (e) {
-      console.warn("Standard loadPgn failed, attempting fallback recovery...", e.message)
+      console.warn('Standard loadPgn failed, attempting fallback recovery...', e.message)
     }
 
     if (parsedSuccessfully) {
@@ -431,9 +449,120 @@
 
   function validateFen(fen) {
     const c = new Chess()
-    try { c.load(fen) } catch (e) { throw new Error('Could not parse that FEN.') }
+    try { c.load(fen) } catch (e) { throw new Error('Could not read that FEN.') }
     return fen
   }
+
+  // --- Month browser: load games for the chosen month ---
+  let requestId = 0
+
+  async function loadMonth() {
+    if (!username.value) return
+    const id = ++requestId
+    loading.value = true
+    error.value = null
+    info.value = null
+    showChessComDelayWarning.value = false
+    games.value = []
+    selectedGame.value = null
+    tcFilter.value = 'all'
+    try {
+      const fetched = importSite.value === 'chess.com'
+        ? await fetchChessComRange(username.value, periodYear.value, periodMonth.value)
+        : await fetchLichessRange(username.value, periodYear.value, periodMonth.value)
+      if (id !== requestId) return
+      games.value = [...fetched].sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0))
+      if (games.value.length === 0) {
+        error.value = `No games found for ${monthLabel.value} ${periodYear.value}.`
+      }
+    } catch (e) {
+      if (id !== requestId) return
+      error.value = e.message
+      console.error(e)
+    } finally {
+      if (id === requestId) loading.value = false
+    }
+  }
+
+  function shiftMonth(delta) {
+    if (delta < 0 && !canGoPrevMonth.value) return
+    if (delta > 0 && !canGoNextMonth.value) return
+    let m = periodMonth.value + delta
+    let y = periodYear.value
+    if (m < 1) { m = 12; y -= 1 }
+    if (m > 12) { m = 1; y += 1 }
+    if (y < MIN_YEAR || y > NOW_YEAR) return
+    if (y === NOW_YEAR && m > NOW_MONTH) return
+    periodYear.value = y
+    periodMonth.value = m
+    loadMonth()
+  }
+
+  function shiftYear(delta) {
+    const y = periodYear.value + delta
+    if (y < MIN_YEAR || y > NOW_YEAR) return
+    periodYear.value = y
+    if (y === NOW_YEAR && periodMonth.value > NOW_MONTH) periodMonth.value = NOW_MONTH
+    loadMonth()
+  }
+
+  // Arrow keys: ← → change month, ↑ ↓ change year (only in month mode, and not while typing)
+  function onArrowKey(e) {
+    if (!isOnlineSource.value || importMode.value !== 'range') return
+    const tag = e.target?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+    if (e.key === 'ArrowLeft') { e.preventDefault(); shiftMonth(-1) }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); shiftMonth(1) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); shiftYear(1) }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); shiftYear(-1) }
+  }
+
+  // Wait a moment after typing a username before searching
+  let usernameTimer = null
+  watch(username, () => {
+    if (importMode.value !== 'range' || !isOnlineSource.value) return
+    clearTimeout(usernameTimer)
+    usernameTimer = setTimeout(loadMonth, 700)
+  })
+
+  // Switching modes clears the old list. Month mode loads right away.
+  watch(importMode, (mode) => {
+    requestId++
+    games.value = []
+    selectedGame.value = null
+    error.value = null
+    info.value = null
+    loading.value = false
+    if (mode === 'range') loadMonth()
+  })
+
+  // Switching source clears the old list. Month mode reloads for the new site.
+  watch(importSite, (site) => {
+    tcFilter.value = 'all'
+    opponentSearch.value = ''
+    error.value = null
+    info.value = null
+    showChessComDelayWarning.value = false
+    requestId++
+    loading.value = false
+    games.value = []
+    selectedGame.value = null
+    if ((site === 'chess.com' || site === 'lichess') && importMode.value === 'range') loadMonth()
+  })
+
+  onMounted(() => {
+    onAuthStateChanged(auth, (user) => {
+      currentUser.value = user
+      if (user) fetchSavedGames()
+      else savedGames.value = []
+    })
+    window.addEventListener('keydown', onArrowKey)
+  })
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('keydown', onArrowKey)
+    clearTimeout(usernameTimer)
+  })
 
   async function chessImport() {
     loading.value = true
@@ -460,33 +589,21 @@
       }
       if (!username.value) throw new Error('Enter a username first.')
 
-      if (importMode.value === 'last') {
-        const lastGames = importSite.value === 'chess.com'
-          ? await fetchChessComLast(username.value)
-          : await fetchLichessLast(username.value)
-        games.value = lastGames
+      const lastGames = importSite.value === 'chess.com'
+        ? await fetchChessComLast(username.value)
+        : await fetchLichessLast(username.value)
+      games.value = lastGames
 
-        if (importSite.value === 'chess.com') {
-          const lastDate = lastGames[0]?.date
-          const ageMin = lastDate ? (Date.now() - lastDate.getTime()) / 60000 : Infinity
-          if (ageMin > 1) {
-            showChessComDelayWarning.value = true
-            info.value = "Chess.com's public API caches games for up to an hour. Your latest game may not have synced to their archive yet."
-          } else {
-            showChessComDelayWarning.value = false
-          }
-        } else {
-          showChessComDelayWarning.value = false
+      if (importSite.value === 'chess.com') {
+        const lastDate = lastGames[0]?.date
+        const ageMin = lastDate ? (Date.now() - lastDate.getTime()) / 60000 : Infinity
+        if (ageMin > 1) {
+          showChessComDelayWarning.value = true
+          info.value = "Chess.com saves games in its public data for up to an hour. Your latest game may not show up yet."
         }
-
-        if (lastGames.length) selectGame(lastGames[0])
-      } else {
-        if (!year.value || month.value === 'month') throw new Error('Pick a year and month.')
-        const fetched = importSite.value === 'chess.com'
-          ? await fetchChessComRange(username.value, year.value, month.value)
-          : await fetchLichessRange(username.value, year.value, month.value)
-        games.value = [...fetched].sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0))
       }
+
+      if (lastGames.length) selectGame(lastGames[0])
 
       if (games.value.length === 0) {
         error.value = 'No games found for that search.'
@@ -575,7 +692,7 @@
     return {
       opponent: opponent.username || 'Unknown',
       result,
-      outcome, 
+      outcome,
       myColor: isWhite ? 'White' : 'Black',
       myRating: me.rating || 0,
       oppRating: opponent.rating || 0
@@ -617,169 +734,273 @@
 
 <template>
   <div class="page-layout">
-    <Title/>
-    <div class="content-area">
-      <div class="import-card">
-        <div class="card-header">
-          <h1 class="import-title">Import a game</h1>
-          <p class="import-subtitle">Pull a game from Chess.com or Lichess, paste PGN/FEN, or browse your library.</p>
-        </div>
-        <div class="site-toggle">
-          <button class="site-btn" :class="{ active: importSite === 'chess.com' }" @click="importSite = 'chess.com'">Chess.com</button>
-          <button class="site-btn" :class="{ active: importSite === 'lichess' }" @click="importSite = 'lichess'">Lichess</button>
-          <button class="site-btn" :class="{ active: importSite === 'pgn' }" @click="importSite = 'pgn'">PGN</button>
-          <button class="site-btn" :class="{ active: importSite === 'fen' }" @click="importSite = 'fen'">FEN</button>
-          <button class="site-btn" :class="{ active: importSite === 'library' }" @click="importSite = 'library'">My Library</button>
-        </div>
-        <div v-if="importSite === 'library' && !currentUser" class="empty-library">
-          Please log in from the top right corner to access your saved games.
-        </div>
-        <div v-else-if="importSite === 'library' && savedGames.length === 0" class="empty-library">
-          Your library is empty. Analyze a game and it will be saved here automatically.
-        </div>
-        <div class="mode-toggle" v-if="!isPasteSource">
-          <button class="mode-btn" :class="{ active: importMode === 'last' }" @click="importMode = 'last'">Last game</button>
-          <button class="mode-btn" :class="{ active: importMode === 'range' }" @click="importMode = 'range'">By month</button>
-        </div>
-        <div class="controls" v-if="!isPasteSource">
-          <label class="field">
-            <span class="field-label">Username</span>
-            <input v-model="username" placeholder="e.g. magnuscarlsen" class="input" @keyup.enter="chessImport" />
-          </label>
-          <template v-if="importMode === 'range'">
-            <label class="field field-small">
-              <span class="field-label">Year</span>
-              <div class="select-wrapper">
-                <select v-model="year" class="input select-input">
-                  <option value="" disabled>Select Year</option>
-                  <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
-                </select>
-                <svg class="dropdown-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
+    <Title />
+
+    <main class="import-shell">
+      <h1 class="page-title">Import a game</h1>
+
+      <div class="card">
+        <!-- Source tabs -->
+        <nav class="source-tabs" role="tablist" aria-label="Game source">
+          <button
+            v-for="s in sources"
+            :key="s.value"
+            type="button"
+            role="tab"
+            class="source-tab"
+            :class="{ active: importSite === s.value }"
+            :aria-selected="importSite === s.value"
+            @click="importSite = s.value"
+          >
+            {{ s.label }}
+            <span
+              v-if="s.value === 'library' && savedGames.length"
+              class="tab-count"
+            >{{ savedGames.length }}</span>
+          </button>
+        </nav>
+
+        <!-- Chess.com / Lichess controls -->
+        <section v-if="isOnlineSource" class="controls">
+          <div class="mode-switch">
+            <button
+              type="button"
+              :class="{ active: importMode === 'last' }"
+              @click="importMode = 'last'"
+            >Latest game</button>
+            <span class="mode-sep">/</span>
+            <button
+              type="button"
+              :class="{ active: importMode === 'range' }"
+              @click="importMode = 'range'"
+            >By month</button>
+          </div>
+
+          <div class="control-row">
+            <input
+              v-model.trim="username"
+              class="input grow"
+              placeholder="Username"
+              aria-label="Username"
+              autocomplete="off"
+              spellcheck="false"
+              @keyup.enter="importMode === 'range' ? loadMonth() : chessImport()"
+            />
+
+            <button
+              v-if="importMode === 'last'"
+              class="btn"
+              :disabled="loading"
+              @click="chessImport"
+            >
+              <span v-if="loading" class="spinner"></span>
+              {{ loading ? 'Loading…' : 'Get game' }}
+            </button>
+
+            <div v-else class="month-nav">
+              <div class="stepper">
+                <button
+                  type="button"
+                  class="step"
+                  :disabled="!canGoPrevMonth || loading"
+                  aria-label="Previous month"
+                  title="Previous month (←)"
+                  @click="shiftMonth(-1)"
+                >‹</button>
+                <span class="step-value">{{ monthShort }}</span>
+                <button
+                  type="button"
+                  class="step"
+                  :disabled="!canGoNextMonth || loading"
+                  aria-label="Next month"
+                  title="Next month (→)"
+                  @click="shiftMonth(1)"
+                >›</button>
               </div>
-            </label>
-            <label class="field field-small">
-              <span class="field-label">Month</span>
-              <div class="select-wrapper">
-                <select v-model="month" class="input select-input">
-                  <option value="month" disabled>Select Month</option>
-                  <option v-for="(name, i) in monthNames" :key="i" :value="i + 1">{{ name }}</option>
-                </select>
-                <svg class="dropdown-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
+
+              <div class="stepper">
+                <button
+                  type="button"
+                  class="step"
+                  :disabled="!canGoPrevYear || loading"
+                  aria-label="Previous year"
+                  title="Previous year (↓)"
+                  @click="shiftYear(-1)"
+                >‹</button>
+                <span class="step-value year">{{ periodYear }}</span>
+                <button
+                  type="button"
+                  class="step"
+                  :disabled="!canGoNextYear || loading"
+                  aria-label="Next year"
+                  title="Next year (↑)"
+                  @click="shiftYear(1)"
+                >›</button>
               </div>
-            </label>
-          </template>
-          <button class="import-btn" @click="chessImport" :disabled="loading">
-            <span v-if="loading" class="spinner"></span>
-            {{ loading ? 'Fetching…' : (importMode === 'last' ? 'Get last game' : 'Search games') }}
-          </button>
-        </div>
-        <div class="paste-controls" v-if="importSite === 'pgn'">
-          <label class="field">
-            <span class="field-label">PGN</span>
-            <textarea v-model="pgnText" class="input textarea" rows="6" placeholder='[Event "Casual Game"]&#10;1. e4 e5 2. Nf3 Nc6 3. Bb5 ...'></textarea>
-          </label>
-          <button class="import-btn" @click="chessImport" :disabled="loading">
-            <span v-if="loading" class="spinner"></span>
-            {{ loading ? 'Parsing…' : 'Load PGN' }}
-          </button>
-        </div>
-        <div class="paste-controls" v-if="importSite === 'fen'">
-          <label class="field">
-            <span class="field-label">FEN</span>
-            <textarea v-model="fenText" class="input textarea textarea-fen" rows="2" placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"></textarea>
-          </label>
-          <button class="import-btn" @click="chessImport" :disabled="loading">
-            <span v-if="loading" class="spinner"></span>
-            {{ loading ? 'Loading…' : 'Load FEN' }}
-          </button>
-        </div>
-        <div v-if="error" class="error">{{ error }}</div>
-        <div v-if="info" class="info-note">
-          {{ info }}
-          <div v-if="showChessComDelayWarning" class="delay-action">
-            <button class="pgn-switch-btn" @click="importSite = 'pgn'">
-              📋 Paste PGN instead (Instant)
+
+              <span class="spinner-slot"><span v-if="loading" class="spinner small"></span></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- PGN -->
+        <section v-if="importSite === 'pgn'" class="controls">
+          <textarea
+            v-model="pgnText"
+            class="input textarea"
+            rows="5"
+            aria-label="PGN"
+            placeholder='Paste a PGN here&#10;[Event "Casual Game"]&#10;1. e4 e5 2. Nf3 Nc6 3. Bb5 ...'
+          ></textarea>
+          <div class="actions-right">
+            <button class="btn" :disabled="loading" @click="chessImport">
+              <span v-if="loading" class="spinner"></span>
+              {{ loading ? 'Reading…' : 'Load PGN' }}
             </button>
           </div>
+        </section>
+
+        <!-- FEN -->
+        <section v-if="importSite === 'fen'" class="controls">
+          <div class="control-row">
+            <input
+              v-model="fenText"
+              class="input grow mono"
+              aria-label="FEN"
+              placeholder="Paste a FEN, e.g. rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+              spellcheck="false"
+              @keyup.enter="chessImport"
+            />
+            <button class="btn" :disabled="loading" @click="chessImport">
+              <span v-if="loading" class="spinner"></span>
+              {{ loading ? 'Loading…' : 'Load' }}
+            </button>
+          </div>
+        </section>
+
+        <!-- Library empty states -->
+        <section v-if="importSite === 'library' && !currentUser" class="empty">
+          <p class="empty-title">Log in to see your library</p>
+          <p class="empty-text">Use the login button at the top right corner.</p>
+        </section>
+        <section v-else-if="importSite === 'library' && savedGames.length === 0" class="empty">
+          <p class="empty-title">Your library is empty</p>
+          <p class="empty-text">Analyse a game and it will be saved here.</p>
+        </section>
+
+        <!-- Notices -->
+        <div v-if="error" class="notice error">{{ error }}</div>
+        <div v-if="info" class="notice warn">
+          <p>{{ info }}</p>
+          <button
+            v-if="showChessComDelayWarning"
+            type="button"
+            class="link-btn"
+            @click="importSite = 'pgn'"
+          >Paste a PGN instead</button>
         </div>
-        <div v-if="saveStatus" class="save-toast">{{ saveStatus }}</div>
-        <!-- Results browser: shared by fetched games and My Library -->
-        <div v-if="activeSource.length" class="results">
-          <div class="results-meta">
-            <span class="results-count">
-              <template v-if="activeSource.length > 1">{{ filteredGames.length }} of {{ activeSource.length }} games</template>
-              <template v-else>1 game</template>
-            </span>
-            <span class="results-record">
-              <span class="rec-w">{{ overallStats.w }}W</span>
-              <span class="rec-l">{{ overallStats.l }}L</span>
-              <span class="rec-d">{{ overallStats.d }}D</span>
-            </span>
-          </div>
-          <div class="results-toolbar" v-if="activeSource.length > 1">
-            <div class="tc-chips">
-              <button
-                v-for="tab in timeControlTabs"
-                :key="tab.value"
-                class="tc-chip"
-                :class="[tab.value, { active: tcFilter === tab.value }]"
-                @click="tcFilter = tab.value"
-              >
-                {{ tab.label }}<span class="chip-count">{{ tab.count }}</span>
-              </button>
+        <div v-if="saveStatus" class="notice ok">{{ saveStatus }}</div>
+
+        <!-- Results -->
+        <section v-if="activeSource.length" class="results">
+          <div class="results-bar">
+            <div class="record">
+              <span class="w">{{ overallStats.w }}W</span>
+              <span class="l">{{ overallStats.l }}L</span>
+              <span class="d">{{ overallStats.d }}D</span>
+              <span class="count">
+                · <template v-if="activeSource.length > 1">{{ filteredGames.length }} of {{ activeSource.length }}</template><template v-else>1 game</template>
+              </span>
             </div>
-            <input v-model="opponentSearch" class="input search-input" placeholder="Filter by player…" />
+
+            <div v-if="activeSource.length > 1" class="search-wrap">
+              <input
+                v-model="opponentSearch"
+                class="input search"
+                placeholder="Search player"
+                aria-label="Search by player"
+                spellcheck="false"
+              />
+              <button
+                v-if="opponentSearch"
+                type="button"
+                class="clear-btn"
+                aria-label="Clear search"
+                @click="clearSearch"
+              >×</button>
+            </div>
           </div>
-          <div class="games-list">
-            <section v-for="group in displayedGroups" :key="group.key" class="tc-group">
-              <header class="tc-group-header">
-                <span class="tc-badge" :class="group.key"></span>
-                <span class="tc-name">{{ group.label }}</span>
-                <span class="tc-stats">
-                  {{ group.games.length }} {{ group.games.length === 1 ? 'game' : 'games' }} ·
-                  <span class="rec-w">{{ group.stats.w }}W</span>
-                  <span class="rec-l">{{ group.stats.l }}L</span>
-                  <span class="rec-d">{{ group.stats.d }}D</span>
-                </span>
+
+          <div v-if="timeControlTabs.length > 2" class="tc-tabs">
+            <button
+              v-for="tab in timeControlTabs"
+              :key="tab.value"
+              type="button"
+              class="tc-tab"
+              :class="[tab.value, { active: tcFilter === tab.value }]"
+              @click="tcFilter = tab.value"
+            >
+              {{ tab.label }}<span class="tc-count">{{ tab.count }}</span>
+            </button>
+          </div>
+
+          <div class="groups">
+            <div v-for="group in displayedGroups" :key="group.key" class="group">
+              <header v-if="displayedGroups.length > 1" class="group-head">
+                <span class="group-name">{{ group.label }}</span>
+                <span class="group-line"></span>
+                <span class="group-stats">{{ group.stats.w }}W {{ group.stats.l }}L {{ group.stats.d }}D</span>
               </header>
+
               <div
                 v-for="(game, i) in group.games"
                 :key="group.key + '-' + i"
-                class="game-row"
-                :class="{ selected: isSelected(game) }"
+                class="row"
+                :class="[formatResult(game).outcome, { selected: isSelected(game) }]"
+                role="button"
+                tabindex="0"
                 @click="selectGame(game)"
+                @keydown.enter.prevent="selectGame(game)"
               >
-                <span class="color-dot" :class="formatResult(game).myColor.toLowerCase()"></span>
-                <span class="opponent">vs {{ formatResult(game).opponent }}</span>
-                <span v-if="formatDate(game)" class="date">{{ formatDate(game) }}</span>
-                <span class="rating">{{ formatResult(game).myRating }} vs {{ formatResult(game).oppRating }}</span>
-                <span class="result" :class="formatResult(game).outcome">{{ formatResult(game).result }}</span>
-                <button v-if="game.id" class="delete-btn" @click="deleteSavedGame(game.id, $event)">×</button>
+                <span
+                  class="piece"
+                  :title="'You played ' + formatResult(game).myColor.toLowerCase()"
+                >{{ formatResult(game).myColor === 'White' ? '♔' : '♚' }}</span>
+
+                <span class="opponent">{{ formatResult(game).opponent }}</span>
+
+                <span class="meta">
+                  <template v-if="formatDate(game)">{{ formatDate(game) }}<i>·</i></template>{{ formatResult(game).myRating }}<i>/</i>{{ formatResult(game).oppRating }}
+                </span>
+
+                <span class="result">{{ formatResult(game).result }}</span>
+
+                <button
+                  v-if="game.id"
+                  type="button"
+                  class="delete"
+                  aria-label="Delete game"
+                  title="Delete game"
+                  @click="deleteSavedGame(game.id, $event)"
+                >×</button>
               </div>
-            </section>
+            </div>
           </div>
-          <div v-if="filteredGames.length === 0" class="empty">No games match your filters.</div>
-        </div>
-        <div v-if="selectedGame && importSite !== 'fen'" class="selection-bar">
-          <div class="selection-info">
-            <span class="selected-msg">Game ready</span>
-            <span class="selection-players">
-              {{ selectedGame.white.username }} ({{ selectedGame.white.rating }})
-              vs {{ selectedGame.black.username }} ({{ selectedGame.black.rating }})
-              <template v-if="formatDate(selectedGame)"> · {{ formatDate(selectedGame) }}</template>
-            </span>
-          </div>
-          <button class="analyse-btn" @click="analyseGame()">Analyse →</button>
-        </div>
-        <div v-else-if="activeSource.length > 1 && !loading && importSite !== 'fen'" class="empty">
-          No game selected yet.
-        </div>
+
+          <p v-if="filteredGames.length === 0" class="no-match">No games match your filters.</p>
+        </section>
       </div>
-    </div>
+
+      <!-- Selected game bar -->
+      <div v-if="selectedGame && importSite !== 'fen'" class="selection-bar">
+        <span class="sel-players">
+          {{ selectedGame.white.username }} <em>{{ selectedGame.white.rating }}</em>
+          <span class="vs">vs</span>
+          {{ selectedGame.black.username }} <em>{{ selectedGame.black.rating }}</em>
+        </span>
+        <button class="btn" @click="analyseGame">Analyse →</button>
+      </div>
+    </main>
   </div>
 </template>
 
@@ -787,479 +1008,544 @@
   @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
 
   .page-layout {
+    --ink: #f4f0e3;
+    --ink-soft: rgba(244, 240, 227, 0.7);
+    --ink-faint: rgba(244, 240, 227, 0.42);
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.14);
+    --win: #8fc06a;
+    --loss: #d9736a;
+    --draw: #d9b36a;
+    --gold: var(--text-highlight, #d9b382);
+
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    padding: clamp(0.5rem, 3vw, 1rem);
     display: grid;
     grid-template-columns: 1fr;
-    gap: 1.25rem;
-    justify-self: center;
-    min-width: 100%;
-    margin: 0 auto;
+    gap: 0.75rem;
+    padding: clamp(0.5rem, 2vw, 1rem);
     box-sizing: border-box;
+    color: var(--ink);
   }
 
   @media (min-width: 768px) {
-    .page-layout { grid-template-columns: auto 1fr; gap: 1.5rem; }
+    .page-layout { grid-template-columns: auto minmax(0, 1fr); gap: 1.25rem; }
   }
 
-  .content-area { display: flex; justify-content: stretch; width: 100%; min-width: 0; }
-
-  .import-card {
+  .import-shell {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    padding: clamp(1.25rem, 3vw, 2rem);
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-    background: linear-gradient(145deg, var(--panel-1), var(--panel-2));
-    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    gap: 0.75rem;
+    min-width: 0;
+    padding-bottom: 3.5rem;
   }
 
-  .card-header { text-align: center; }
-
-  .import-title {
-    font-family: serif;
-    color: #f5f5dc;
+  .page-title {
+    margin: 0.1rem 0 0;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(1.7rem, 4vw, 2.2rem);
     font-weight: 700;
-    text-transform: uppercase;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-    letter-spacing: 2px;
-    font-size: clamp(1.3rem, 3vw, 1.7rem);
-    margin: 0 0 0.4rem;
-  }
-
-  .import-subtitle { color: rgba(244, 240, 227, 0.72); font-size: 0.85rem; margin: 0; }
-
-  .site-toggle, .mode-toggle {
-    display: flex;
-    flex-wrap: wrap;         
-    gap: 0.4rem;
-    background: rgba(0, 0, 0, 0.2);
-    padding: 0.3rem;
-    border-radius: 10px;
-  }
-
-  .site-btn, .mode-btn {
-    flex: 1 1 auto;            
-    min-width: 0;           
-    padding: 0.5rem 0.6rem; 
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: rgba(244, 240, 227, 0.65);
-    font-weight: 600;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .site-btn:hover, .mode-btn:hover { color: #f4f0e3; }
-
-  .site-btn.active, .mode-btn.active {
-    background: var(--btn-active);
+    letter-spacing: 0.01em;
     color: #f5f5dc;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+    line-height: 1.1;
   }
 
-  @media (max-width: 480px) {
-    .site-toggle, .mode-toggle {
-      gap: 0.3rem;
-      padding: 0.25rem;
-    }
-    .site-btn, .mode-btn { 
-      font-size: 0.78rem;
-      padding: 0.45rem 0.5rem;
-    }
+  /* ---------- One card for everything ---------- */
+  .card {
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: linear-gradient(145deg, var(--panel-1, #262421), var(--panel-2, #1e1c18));
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
   }
 
-  .controls { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end; }
-  .paste-controls { display: flex; flex-direction: column; gap: 0.6rem; }
+  /* ---------- Tabs with an underline ---------- */
+  .source-tabs {
+    display: flex;
+    gap: 0.15rem;
+    padding: 0 0.6rem;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
 
-  .textarea { resize: vertical; font-family: "JetBrains Mono", monospace; font-size: 0.82rem; line-height: 1.4; }
-  .textarea-fen { resize: none; }
+  .source-tabs::-webkit-scrollbar { display: none; }
 
-  .field { display: flex; flex-direction: column; gap: 0.3rem; flex: 1 1 10rem; min-width: 0; } 
-  .field-small { flex: 1 1 5rem; }
-
-  .field-label {
-    font-size: 0.72rem;
+  .source-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.8rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--ink-faint);
+    font: inherit;
+    font-size: 0.86rem;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: rgba(244, 240, 227, 0.65);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+
+  .source-tab:hover { color: var(--ink-soft); }
+  .source-tab.active { color: var(--ink); }
+
+  .source-tab.active::after {
+    content: '';
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--gold);
+  }
+
+  .tab-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--gold);
+  }
+
+  /* ---------- Controls ---------- */
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .mode-switch {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+  }
+
+  .mode-switch button {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--ink-faint);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .mode-switch button:hover { color: var(--ink-soft); }
+  .mode-switch button.active { color: var(--ink); }
+  .mode-sep { color: var(--ink-faint); opacity: 0.5; }
+
+  .control-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
   }
 
   .input {
-    padding: 0.55rem 0.7rem;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(0, 0, 0, 0.25);
-    color: #f4f0e3;
-    font-size: 0.9rem;
     box-sizing: border-box;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.28);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.9rem;
+    transition: border-color 0.15s ease;
+  }
+
+  .input::placeholder { color: var(--ink-faint); }
+  .input:focus { outline: none; border-color: var(--gold); }
+
+  .input.grow { flex: 1 1 10rem; min-width: 0; }
+
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+
+  .textarea {
     width: 100%;
+    resize: vertical;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.5;
   }
 
-  .input:focus {
-    outline: none;
-    border-color: var(--text-highlight);
-    box-shadow: 0 0 0 2px rgba(217, 179, 130, 0.2);
-  }
+  .actions-right { display: flex; justify-content: flex-end; }
 
-  /* --- Custom Select Dropdown Styles --- */
-  .select-wrapper { position: relative; width: 100%; }
-
-  .select-input {
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    padding-right: 2.5rem;
-    cursor: pointer; 
-    width: 100%;
-  }
-
-  .select-wrapper .dropdown-arrow {
-    position: absolute;
-    right: 0.8rem;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 16px;
-    height: 16px;
-    color: var(--text-highlight);
-    pointer-events: none;
-    transition: transform 0.2s ease;
-  }
-
-  .select-input option {
-    background-color: var(--bg-2);
-    color: #f4f0e3;
-    padding: 0.5rem;
-  }
-
-  .import-btn {
-    display: flex;
+  .btn {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    padding: 0.6rem 1.1rem;
-    border-radius: 8px;
-    background: var(--btn-active);
-    color: #f4f0e3;
+    gap: 0.45rem;
+    padding: 0.5rem 1.1rem;
     border: none;
-    font-weight: 600; 
-    font-size: 0.9rem;
+    border-radius: 8px;
+    background: var(--btn-active, #5a6b3d);
+    color: #f5f5dc;
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s ease;
     white-space: nowrap;
     flex: 0 0 auto;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
   }
 
-  .import-btn:hover:not(:disabled) { background: var(--btn-idle); }
-  .import-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn:hover:not(:disabled) { background: var(--btn-idle, #6b7d49); }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
   .spinner {
-    width: 0.85rem; height: 0.85rem;
+    width: 0.8rem;
+    height: 0.8rem;
     border-radius: 50%;
-    border: 2px solid rgba(244, 240, 227, 0.35);
-    border-top-color: #f4f0e3;
+    border: 2px solid rgba(245, 245, 220, 0.3);
+    border-top-color: #f5f5dc;
     animation: spin 0.7s linear infinite;
   }
 
+  .spinner.small {
+    border-color: rgba(217, 179, 130, 0.25);
+    border-top-color: var(--gold);
+  }
+
+  .spinner-slot { display: inline-flex; width: 0.8rem; height: 0.8rem; flex: 0 0 auto; }
+
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .error {
-    color: #ffb0a8;
-    background: rgba(255, 60, 60, 0.12);
-    border: 1px solid rgba(255, 100, 90, 0.3);
-    border-radius: 8px;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.85rem;
-  }
-
-  .info-note {
-    color: #e8c37a;
-    background: rgba(217, 179, 106, 0.1);
-    border: 1px solid rgba(217, 179, 106, 0.3);
-    border-radius: 8px;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.82rem;
-  }
-
-  .delay-action {
-    margin-top: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    align-items: center;
-    border-top: 1px solid rgba(217, 179, 106, 0.2);
-    padding-top: 0.6rem;
-  }
-
-  .pgn-switch-btn {
-    background: var(--btn-active);
-    color: #f4f0e3;
-    border: none;
-    padding: 0.45rem 0.9rem;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.82rem;
-    cursor: pointer;
-    transition: background 0.2s;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  }
-
-  .pgn-switch-btn:hover {
-    background: var(--btn-idle);
-  }
-
-  .save-toast {
-    color: #a8d97a;
-    background: rgba(106, 209, 63, 0.12);
-    border: 1px solid rgba(106, 209, 63, 0.3);
-    border-radius: 8px;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.85rem;
-    text-align: center;
-  }
-
-  /* --- Results browser (shared by fetch results + library) --- */
-  .results { display: flex; flex-direction: column; gap: 0.6rem; }
-
-  .results-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.8rem;
-    color: rgba(244, 240, 227, 0.65);
-    padding: 0 0.15rem;
-  }
-
-  .results-record { display: flex; gap: 0.45rem; font-weight: 700; }
-  .rec-w { color: #8fc06a; }
-  .rec-l { color: #d9736a; }
-  .rec-d { color: #d9b36a; }
-
-  .results-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .tc-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-
-  .tc-chip {
+  /* ---------- Month steppers ---------- */
+  .month-nav {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.3rem 0.65rem;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(0, 0, 0, 0.2);
-    color: rgba(244, 240, 227, 0.75);
+    gap: 1rem;
+    flex: 0 0 auto;
+  }
+
+  .stepper { display: inline-flex; align-items: center; }
+
+  .step {
+    width: 1.7rem;
+    height: 1.9rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .step:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+  .step:disabled { opacity: 0.25; cursor: not-allowed; }
+
+  .step-value {
+    min-width: 2.5rem;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.92rem;
+  }
+
+  .step-value.year {
+    min-width: 3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    color: var(--gold);
+  }
+
+  /* ---------- Notices ---------- */
+  .notice {
+    margin: 0 1rem 0.8rem;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid;
+    border-radius: 4px 8px 8px 4px;
+    font-size: 0.83rem;
+    line-height: 1.4;
+  }
+
+  .notice p { margin: 0; }
+  .notice.error { color: #f0b4ac; border-color: var(--loss); background: rgba(217, 115, 106, 0.1); }
+  .notice.warn {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.3rem 1rem;
+    color: #e8c98a;
+    border-color: var(--draw);
+    background: rgba(217, 179, 106, 0.08);
+  }
+  .notice.ok { color: #b9dc97; border-color: var(--win); background: rgba(143, 192, 106, 0.1); }
+
+  .link-btn {
+    padding: 0;
+    border: none;
+    background: none;
+    color: #f4d58f;
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+
+  /* ---------- Empty states ---------- */
+  .empty { padding: 2rem 1rem; text-align: center; }
+  .empty-title { margin: 0 0 0.2rem; font-family: 'Cormorant Garamond', serif; font-size: 1.25rem; font-weight: 700; color: #f5f5dc; }
+  .empty-text { margin: 0; font-size: 0.83rem; color: var(--ink-faint); }
+
+  /* ---------- Results ---------- */
+  .results { border-top: 1px solid var(--line); }
+
+  .results-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+  }
+
+  .record {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .record .w { color: var(--win); }
+  .record .l { color: var(--loss); }
+  .record .d { color: var(--draw); }
+  .record .count { color: var(--ink-faint); font-weight: 500; }
+
+  .search-wrap { position: relative; flex: 0 1 10rem; min-width: 0; }
+  .search { width: 100%; padding: 0.3rem 1.7rem 0.3rem 0.6rem; font-size: 0.8rem; }
+
+  .clear-btn {
+    position: absolute;
+    right: 0.2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.4rem;
+    height: 1.4rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .clear-btn:hover { color: var(--ink); }
+
+  /* time control tabs: plain text */
+  .tc-tabs {
+    display: flex;
+    gap: 1rem;
+    padding: 0 1rem 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tc-tabs::-webkit-scrollbar { display: none; }
+
+  .tc-tab {
+    flex: 0 0 auto;
+    padding: 0.15rem 0;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--ink-faint);
+    font: inherit;
     font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease, border-color 0.15s ease;
   }
 
-  .tc-chip::before {
-    content: '';
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--tc, #9a9a9a);
-    flex-shrink: 0;
+  .tc-tab:hover { color: var(--ink-soft); }
+  .tc-tab.active { color: var(--ink); border-bottom-color: var(--tc, var(--gold)); }
+
+  .tc-count {
+    margin-left: 0.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.66rem;
+    opacity: 0.6;
   }
 
-  .tc-chip:hover { color: #f4f0e3; border-color: rgba(255, 255, 255, 0.25); }
+  .tc-tab.all { --tc: #f4f0e3; }
+  .tc-tab.ultrabullet { --tc: #ff6b6b; }
+  .tc-tab.bullet { --tc: #ff9f43; }
+  .tc-tab.blitz { --tc: #f2c14e; }
+  .tc-tab.rapid { --tc: #8fc06a; }
+  .tc-tab.classical { --tc: #6aa8d9; }
+  .tc-tab.correspondence, .tc-tab.daily { --tc: #a78bdb; }
+  .tc-tab.unknown { --tc: #9a9a9a; }
 
-  .tc-chip.active {
-    border-color: var(--tc, var(--text-highlight));
-    background: rgba(255, 255, 255, 0.08);
-    color: #f5f5dc;
-  }
-
-  .chip-count {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.68rem;
-    opacity: 0.7;
-  }
-
-  /* Time-control accent colors (chips + group badges) */
-  .tc-chip.all, .tc-badge.all { --tc: #f4f0e3; }
-  .tc-chip.ultrabullet, .tc-badge.ultrabullet { --tc: #ff6b6b; }
-  .tc-chip.bullet, .tc-badge.bullet { --tc: #ff9f43; }
-  .tc-chip.blitz, .tc-badge.blitz { --tc: #f2c14e; }
-  .tc-chip.rapid, .tc-badge.rapid { --tc: #8fc06a; }
-  .tc-chip.classical, .tc-badge.classical { --tc: #6aa8d9; }
-  .tc-chip.correspondence, .tc-badge.correspondence { --tc: #a78bdb; }
-  .tc-chip.daily, .tc-badge.daily { --tc: #a78bdb; }
-  .tc-chip.unknown, .tc-badge.unknown { --tc: #9a9a9a; }
-
-  .search-input { max-width: 11rem; flex: 0 1 11rem; padding: 0.35rem 0.6rem; font-size: 0.8rem; }
-
-  .games-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    max-height: 50vh;
+  .groups {
+    max-height: 56vh;
     overflow-y: auto;
-    overflow-x: hidden;
     scrollbar-width: thin;
-    width: 100%;
-    box-sizing: border-box;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
 
-  .tc-group { display: flex; flex-direction: column; gap: 0.35rem; }
-
-  .tc-group-header {
+  .group-head {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: 0.15rem 0.2rem;
+    gap: 0.6rem;
+    padding: 0.55rem 1rem 0.25rem;
   }
 
-  .tc-badge {
-    width: 9px; height: 9px;
-    border-radius: 50%;
-    background: var(--tc, #9a9a9a);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
-    flex-shrink: 0;
-  }
-
-  .tc-name {
-    font-size: 0.72rem;
+  .group-name {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1rem;
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: #f4f0e3;
+    color: var(--gold);
   }
 
-  .tc-stats {
-    margin-left: auto;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.72rem;
-    color: rgba(244, 240, 227, 0.55);
-    display: flex;
-    gap: 0.35rem;
-    align-items: center;
-    flex-wrap: wrap;
+  .group-line { flex: 1; height: 1px; background: var(--line); }
+
+  .group-stats {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.66rem;
+    color: var(--ink-faint);
   }
 
-  .game-row {
+  /* ---------- Game rows: simple list, no boxes ---------- */
+  .row {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem 0.75rem;
-    padding: 0.55rem 0.75rem;
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid transparent;
+    gap: 0.65rem;
+    padding: 0.5rem 1rem 0.5rem 0.85rem;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid var(--line);
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-    color: #f4f0e3;
+    outline: none;
+    transition: background 0.12s ease;
   }
 
-  .game-row:hover { background: rgba(0, 0, 0, 0.3); }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: rgba(255, 255, 255, 0.04); }
+  .row:focus-visible { background: rgba(255, 255, 255, 0.06); }
 
-  .game-row.selected {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--text-highlight);
+  .row.win { border-left-color: var(--win); }
+  .row.loss { border-left-color: var(--loss); }
+  .row.draw { border-left-color: var(--draw); }
+
+  .row.selected { background: rgba(217, 179, 130, 0.1); }
+
+  .piece {
+    flex: 0 0 auto;
+    width: 1.1rem;
+    text-align: center;
+    font-size: 1.05rem;
+    line-height: 1;
+    color: var(--ink-soft);
   }
 
-  .color-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25); }
-  .color-dot.white { background: #f4f0e3; }
-  .color-dot.black { background: #1a1a1a; }
+  .opponent {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
-  .opponent { flex: 1; min-width: 6rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .date {
-    font-family: "JetBrains Mono", monospace;
+  .meta {
+    flex: 0 0 auto;
+    font-family: 'JetBrains Mono', monospace;
     font-size: 0.72rem;
-    color: rgba(244, 240, 227, 0.5);
-    flex-shrink: 0;
+    color: var(--ink-faint);
+    white-space: nowrap;
   }
 
-  .rating { font-family: "JetBrains Mono", monospace; color: rgba(244, 240, 227, 0.6); font-size: 0.8rem; flex-shrink: 0; }
+  .meta i { font-style: normal; margin: 0 0.3rem; opacity: 0.6; }
 
-  .result { font-weight: 700; font-size: 0.85rem; flex-shrink: 0; }
-  .result.win { color: #8fc06a; }
-  .result.loss { color: #d9736a; }
-  .result.draw { color: #d9b36a; }
-
-  @media (max-width: 560px) {
-    .rating { display: none; }
-    .search-input { max-width: 100%; flex: 1 1 100%; }
+  .result {
+    flex: 0 0 auto;
+    min-width: 2.4rem;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    font-weight: 700;
   }
 
+  .row.win .result { color: var(--win); }
+  .row.loss .result { color: var(--loss); }
+  .row.draw .result { color: var(--draw); }
+
+  .delete {
+    flex: 0 0 auto;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink-faint);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .delete:hover { background: rgba(217, 115, 106, 0.15); color: #ffb0a8; }
+
+  .no-match { margin: 0; padding: 1rem; text-align: center; font-size: 0.83rem; color: var(--ink-faint); }
+
+  /* ---------- Selected game bar ---------- */
   .selection-bar {
+    position: sticky;
+    bottom: 0.6rem;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
     align-items: center;
     justify-content: space-between;
-    padding: 0.7rem 0.9rem;
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
-    border: 1px solid var(--text-highlight);
+    gap: 0.75rem;
+    padding: 0.55rem 0.6rem 0.55rem 1rem;
+    border-radius: 12px;
+    border: 1px solid var(--line-strong);
+    border-top: 2px solid var(--gold);
+    background: var(--panel-1, #262421);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+    z-index: 10;
   }
 
-  .selection-info { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-
-  .selected-msg { color: var(--text-highlight); font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; }
-
-  .selection-players { color: #f4f0e3; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .analyse-btn {
-    padding: 0.5rem 1.1rem;
-    border-radius: 8px;
-    font-weight: 700;
-    color: #f4f0e3;
-    background: var(--btn-active);
-    border: none;
-    cursor: pointer;
-    transition: background 0.2s ease;
-    flex-shrink: 0;
+  .sel-players {
+    min-width: 0;
+    font-size: 0.86rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .analyse-btn:hover { background: var(--btn-idle); }
-
-  .empty-library {
-    text-align: center;
-    padding: 2rem;
-    color: rgba(244, 240, 227, 0.5);
-    font-style: italic;
-    background: rgba(0, 0, 0, 0.1);
-    border-radius: 8px;
+  .sel-players em {
+    font-style: normal;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--ink-faint);
   }
 
-  .delete-btn {
-    background: none;
-    border: none;
-    color: rgba(255, 100, 100, 0.5);
-    font-size: 1.2rem;
-    cursor: pointer;
-    padding: 0 0.5rem;
-    margin-left: auto;
-    transition: color 0.2s;
-  }
+  .sel-players .vs { margin: 0 0.35rem; color: var(--ink-faint); font-weight: 400; }
 
-  .delete-btn:hover { color: #ffb0a8; }
-
-  .empty {
-    color: rgba(244, 240, 227, 0.6);
-    text-align: center;
-    padding: 0.7rem;
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 8px;
-    font-size: 0.85rem;
+  /* ---------- Small screens ---------- */
+  @media (max-width: 560px) {
+    .controls { padding: 0.8rem; }
+    .control-row .btn { flex: 1 1 100%; }
+    .month-nav { flex: 1 1 100%; justify-content: space-between; }
+    .meta { display: none; }
+    .results-bar, .tc-tabs { padding-left: 0.8rem; padding-right: 0.8rem; }
+    .search-wrap { flex-basis: 7rem; }
+    .row { padding-right: 0.8rem; }
   }
 </style>
