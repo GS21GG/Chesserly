@@ -47,7 +47,7 @@ function createWorker() {
         activeHandler = null
         currentMultiPV = 1
 
-        const worker = new Worker('/stockfish/stockfish-19-lite-single.js')
+        const worker = new Worker('/stockfish/stockfish-17.1-lite-single.js')
         sf = worker
         worker.addEventListener('message', handleEngineMessage)
 
