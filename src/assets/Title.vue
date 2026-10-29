@@ -40,7 +40,51 @@
 
 <template>
   <div class="title-container" :class="{ 'menu-open': menuOpen }">
-    <h1 class="title">♔ CHESSERLY</h1>
+    <h1 class="title">
+      <svg class="logo" viewBox="268 148 716 928" aria-hidden="true">
+        <defs>
+          <linearGradient id="lg-gold" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#FDE047"/>
+            <stop offset="1" stop-color="#FBBF24"/>
+          </linearGradient>
+          <linearGradient id="lg-base" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#FDD02F"/>
+            <stop offset="1" stop-color="#F29D12"/>
+          </linearGradient>
+          <linearGradient id="lg-ribbon" gradientUnits="userSpaceOnUse" x1="0" y1="500" x2="0" y2="905">
+            <stop offset="0" stop-color="#F6A91E"/>
+            <stop offset="0.6" stop-color="#E58A12"/>
+            <stop offset="1" stop-color="#8B4A1C"/>
+          </linearGradient>
+          <linearGradient id="lg-stemL" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#F59E0B"/>
+            <stop offset="1" stop-color="#FBBF24"/>
+          </linearGradient>
+          <g id="lg-arm">
+            <path fill-rule="evenodd" fill="url(#lg-gold)" d="M527 425 C380 395 272 500 272 607 C272 720 350 770 420 830 C445 855 445 880 435 905 L627 905 L627 488 C585 480 545 460 527 425 Z M425 500 C500 495 560 520 582 548 C590 600 575 760 556 805 C548 830 542 840 535 842 C520 790 372 730 372 607 C372 560 395 520 425 500 Z"/>
+            <path fill="url(#lg-ribbon)" d="M272 607 C272 720 350 770 420 830 C445 855 445 880 435 905 C490 898 530 875 535 842 C520 790 372 730 372 607 C372 560 395 520 425 500 C340 520 290 580 272 607 Z"/>
+          </g>
+          <path id="lg-stem" d="M627 488 L582 548 C590 600 575 760 556 805 C548 830 542 840 535 842 C520 880 480 898 435 905 L627 905 Z"/>
+        </defs>
+
+        <!-- cross -->
+        <rect x="587" y="150" width="80" height="190" rx="10" fill="url(#lg-gold)"/>
+        <rect x="520" y="218" width="213" height="65" rx="10" fill="url(#lg-gold)"/>
+        <!-- ring -->
+        <path fill-rule="evenodd" fill="url(#lg-gold)" d="M517 420 a110 110 0 1 0 220 0 a110 110 0 1 0 -220 0 Z M560 420 a67 67 0 1 0 134 0 a67 67 0 1 0 -134 0 Z"/>
+        <!-- arms -->
+        <use href="#lg-arm"/>
+        <use href="#lg-arm" transform="translate(1254 0) scale(-1 1)"/>
+        <!-- stem -->
+        <use href="#lg-stem" fill="url(#lg-stemL)"/>
+        <use href="#lg-stem" fill="url(#lg-gold)" transform="translate(1254 0) scale(-1 1)"/>
+        <!-- base -->
+        <rect x="380" y="928" width="490" height="58" rx="22" fill="url(#lg-base)"/>
+        <rect x="338" y="1000" width="570" height="72" rx="36" fill="url(#lg-base)"/>
+      </svg>
+      <span class="title-text">CHESSERLY</span>
+    </h1>
+
     <button
       class="menu-toggle"
       :aria-expanded="menuOpen"
@@ -52,62 +96,62 @@
     <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
     <nav class="title-nav">
       <button class="btn" :style="{ background: `linear-gradient(${bgColor('import')})` }" @click="importClick()">
-  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-    <polyline points="7 10 12 15 17 10"/>
-    <line x1="12" x2="12" y1="15" y2="3"/>
-  </svg>
-  GameImport
-  </button>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" x2="12" y1="15" y2="3"/>
+        </svg>
+        GameImport
+      </button>
 
-  <button class="btn" :style="{ background: `linear-gradient(${bgColor('analyze')})` }" @click="analyzeClick()">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="11" cy="11" r="8"/>
-      <path d="m21 21-4.3-4.3"/>
-    </svg>
-    Analyse
-  </button>
+      <button class="btn" :style="{ background: `linear-gradient(${bgColor('analyze')})` }" @click="analyzeClick()">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.3-4.3"/>
+        </svg>
+        Analyse
+      </button>
 
-  <button class="btn" :style="{ background: `linear-gradient(${bgColor('insight')})` }" @click="insightsClick()">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 3v16a2 2 0 0 0 2 2h16"/>
-      <path d="M18 17V9"/>
-      <path d="M13 17V5"/>
-      <path d="M8 17v-3"/>
-    </svg>
-    Insights
-  </button>
+      <button class="btn" :style="{ background: `linear-gradient(${bgColor('insight')})` }" @click="insightsClick()">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3v16a2 2 0 0 0 2 2h16"/>
+          <path d="M18 17V9"/>
+          <path d="M13 17V5"/>
+          <path d="M8 17v-3"/>
+        </svg>
+        Insights
+      </button>
 
-  <button
-    class="btn tooltip-btn"
-    :style="{ background: `linear-gradient(${bgColor('computer')})` }"
-    @click="gameClick()"
-    disabled
-    data-tooltip="Coming soon..."
-  >
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 8V4H8"/>
-      <rect width="16" height="12" x="4" y="8" rx="2"/>
-      <path d="M2 14h2"/>
-      <path d="M20 14h2"/>
-      <path d="M15 13v2"/>
-      <path d="M9 13v2"/>
-    </svg>
-    VS Computer
-  </button>
+      <button
+        class="btn tooltip-btn"
+        :style="{ background: `linear-gradient(${bgColor('computer')})` }"
+        @click="gameClick()"
+        disabled
+        data-tooltip="Coming soon..."
+      >
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 8V4H8"/>
+          <rect width="16" height="12" x="4" y="8" rx="2"/>
+          <path d="M2 14h2"/>
+          <path d="M20 14h2"/>
+          <path d="M15 13v2"/>
+          <path d="M9 13v2"/>
+        </svg>
+        VS Computer
+      </button>
 
-  <button
-    class="btn tooltip-btn"
-    :style="{ background: `linear-gradient(${bgColor('puzzles')})` }"
-    @click="puzzlesClick()"
-    disabled
-    data-tooltip="Coming soon..."
-  >
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>
-    </svg>
-    Puzzles
-  </button>
+      <button
+        class="btn tooltip-btn"
+        :style="{ background: `linear-gradient(${bgColor('puzzles')})` }"
+        @click="puzzlesClick()"
+        disabled
+        data-tooltip="Coming soon..."
+      >
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>
+        </svg>
+        Puzzles
+      </button>
     </nav>
   </div>
 </template>
@@ -130,20 +174,31 @@
   }
 
   .title {
-    font-family: "Trebuchet MS", "Century Gothic", system-ui, sans-serif;
-    text-align: center;
-    margin-top: 2rem;
-    margin-bottom: 2rem;
-    font-size: clamp(1.4rem, 2.6vw, 2rem);
-    font-weight: 700;
-    letter-spacing: 1px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 1rem 0 1.5rem;
+    user-select: none;
+  }
 
-    background: linear-gradient(90deg, #d4a373, #faedcd);
+  .logo {
+    height: 3.5rem;
+    width: auto;
+    filter: drop-shadow(0 4px 10px rgba(245, 158, 11, 0.35));
+  }
+
+  .title-text {
+    font-family: "Montserrat", "Trebuchet MS", system-ui, sans-serif;
+    font-size: clamp(1.2rem, 2.2vw, 1.7rem);
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    padding-left: 0.2em; /* balances the letter-spacing so it looks centered */
+
+    background: linear-gradient(90deg, #fde047, #f59e0b);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-
-    user-select: none;
   }
 
   button {
@@ -303,12 +358,20 @@
       grid-column: 2;
       grid-row: 1;
       justify-self: center;
+      flex-direction: row;
+      gap: 0.5rem;
       min-width: 0;
       margin: 0;
-      text-align: center;
-      font-size: 1.05rem;
-      letter-spacing: 0.5px;
       white-space: nowrap;
+    }
+
+    .logo {
+      height: 1.6rem;
+    }
+
+    .title-text {
+      font-size: 1.05rem;
+      letter-spacing: 0.15em;
     }
 
     .menu-backdrop {
