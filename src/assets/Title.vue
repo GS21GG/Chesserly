@@ -41,46 +41,25 @@
 <template>
   <div class="title-container" :class="{ 'menu-open': menuOpen }">
     <h1 class="title">
-      <svg class="logo" viewBox="268 148 716 928" aria-hidden="true">
+      <svg class="logo" viewBox="228 68 796 1072" aria-hidden="true">
         <defs>
-          <linearGradient id="lg-gold" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#FDE047"/>
-            <stop offset="1" stop-color="#FBBF24"/>
+          <linearGradient id="lg-gold" gradientUnits="userSpaceOnUse" x1="0" y1="78" x2="0" y2="1130">
+            <stop offset="0" stop-color="#FFE15A"/>
+            <stop offset="1" stop-color="#F5B400"/>
           </linearGradient>
-          <linearGradient id="lg-base" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#FDD02F"/>
-            <stop offset="1" stop-color="#F29D12"/>
-          </linearGradient>
-          <linearGradient id="lg-ribbon" gradientUnits="userSpaceOnUse" x1="0" y1="500" x2="0" y2="905">
-            <stop offset="0" stop-color="#F6A91E"/>
-            <stop offset="0.6" stop-color="#E58A12"/>
-            <stop offset="1" stop-color="#8B4A1C"/>
-          </linearGradient>
-          <linearGradient id="lg-stemL" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#F59E0B"/>
-            <stop offset="1" stop-color="#FBBF24"/>
-          </linearGradient>
-          <g id="lg-arm">
-            <path fill-rule="evenodd" fill="url(#lg-gold)" d="M527 425 C380 395 272 500 272 607 C272 720 350 770 420 830 C445 855 445 880 435 905 L627 905 L627 488 C585 480 545 460 527 425 Z M425 500 C500 495 560 520 582 548 C590 600 575 760 556 805 C548 830 542 840 535 842 C520 790 372 730 372 607 C372 560 395 520 425 500 Z"/>
-            <path fill="url(#lg-ribbon)" d="M272 607 C272 720 350 770 420 830 C445 855 445 880 435 905 C490 898 530 875 535 842 C520 790 372 730 372 607 C372 560 395 520 425 500 C340 520 290 580 272 607 Z"/>
-          </g>
-          <path id="lg-stem" d="M627 488 L582 548 C590 600 575 760 556 805 C548 830 542 840 535 842 C520 880 480 898 435 905 L627 905 Z"/>
         </defs>
-
-        <!-- cross -->
-        <rect x="587" y="150" width="80" height="190" rx="10" fill="url(#lg-gold)"/>
-        <rect x="520" y="218" width="213" height="65" rx="10" fill="url(#lg-gold)"/>
-        <!-- ring -->
-        <path fill-rule="evenodd" fill="url(#lg-gold)" d="M517 420 a110 110 0 1 0 220 0 a110 110 0 1 0 -220 0 Z M560 420 a67 67 0 1 0 134 0 a67 67 0 1 0 -134 0 Z"/>
-        <!-- arms -->
-        <use href="#lg-arm"/>
-        <use href="#lg-arm" transform="translate(1254 0) scale(-1 1)"/>
-        <!-- stem -->
-        <use href="#lg-stem" fill="url(#lg-stemL)"/>
-        <use href="#lg-stem" fill="url(#lg-gold)" transform="translate(1254 0) scale(-1 1)"/>
-        <!-- base -->
-        <rect x="380" y="928" width="490" height="58" rx="22" fill="url(#lg-base)"/>
-        <rect x="338" y="1000" width="570" height="72" rx="36" fill="url(#lg-base)"/>
+        <g fill="url(#lg-gold)">
+          <!-- cross -->
+          <rect x="585" y="78" width="83" height="200" rx="10"/>
+          <rect x="512" y="150" width="229" height="65" rx="10"/>
+          <!-- ring -->
+          <path fill-rule="evenodd" d="M506,381 A120,120 0 1 0 746,381 A120,120 0 1 0 506,381 Z M551,381 A75,75 0 1 0 701,381 A75,75 0 1 0 551,381 Z"/>
+          <!-- crown -->
+          <path fill-rule="evenodd" d="M419,953 C428,940 434,925 436,905 C438,880 420,855 380,822 C320,775 238,720 238,600 C238,470 380,370 506,395 Q626,540 746,395 C872,370 1014,470 1014,600 C1014,720 932,775 872,822 C832,855 814,880 816,905 C818,925 824,940 833,953 Z M590,513 C540,480 480,462 430,470 C360,482 326,535 326,595 C326,680 400,740 440,775 C490,815 520,860 510,908 C570,850 580,700 590,513 Z M662,513 C712,480 772,462 822,470 C892,482 926,535 926,595 C926,680 852,740 812,775 C762,815 732,860 742,908 C682,850 672,700 662,513 Z"/>
+          <!-- base -->
+          <rect x="366" y="973" width="521" height="60" rx="30"/>
+          <rect x="320" y="1052" width="612" height="78" rx="39"/>
+        </g>
       </svg>
       <span class="title-text">CHESSERLY</span>
     </h1>
@@ -191,14 +170,10 @@
   .title-text {
     font-family: "Montserrat", "Trebuchet MS", system-ui, sans-serif;
     font-size: clamp(1.2rem, 2.2vw, 1.7rem);
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: 0.2em;
     padding-left: 0.2em; /* balances the letter-spacing so it looks centered */
-
-    background: linear-gradient(90deg, #fde047, #f59e0b);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #f4f1ea;
   }
 
   button {
