@@ -2014,7 +2014,7 @@
               class="game-board"
               @move="handleBothMoves"
               @board-created="onBoardCreated"
-              :board-config="{ coordinates: true, animation: { enabled: true, duration: 100 } }"
+              :board-config="{ coordinates: true, animation: { enabled: false }}"
             />
             <!-- Best-move arrow: own overlay, never interferes with user-drawn arrows -->
             <svg
@@ -2408,9 +2408,17 @@
             </span>
           </div>
           <!-- text like "Nf3 is a great move!" -->
-          <p :style="{ color: color }" class="accuracydescribtion">
-            {{ isAccuracy }}
-          </p>
+          <div class="accuracydiv">
+            <img
+                v-if="currentNode.san && currentNode.accuracy"
+                :src="accuracySymbol(currentNode.accuracy)"
+                class="large-acc"
+                :class="currentNode.accuracy"
+              />
+            <p :style="{ color: color }" class="accuracydescribtion">        
+              {{ isAccuracy }}
+            </p>
+          </div>
           <!-- "X was the best" (click to play it) -->
           <p class="bestmove" v-if="movesListUCI.length > 0" @click="playMove">
             {{ displayBest() }}
@@ -2787,23 +2795,6 @@
                       </div>
                     </div>
                   </div>
-
-                  <!-- Key Moments: biggest swings, click to jump -->
-                  <div class="report-card" v-if="keyMoments.length">
-                    <div class="rc-head">
-                      <h4 class="rc-title">Key Moments</h4>
-                      <span class="rc-sub">Tap to jump</span>
-                    </div>
-                    <div class="moments-list">
-                      <button v-for="m in keyMoments" :key="'km-' + m.nodeId" class="moment-row" @click="jumpToMoment(m)">
-                        <span class="moment-side" :class="m.side"></span>
-                        <span class="moment-san">{{ Math.ceil(m.ply / 2) }}{{ m.ply % 2 === 1 ? '.' : '...' }} {{ m.san }}</span>
-                        <img v-if="accuracySymbol(m.accuracy)" :src="accuracySymbol(m.accuracy)" class="moment-icon" />
-                        <span class="moment-swing">{{ (m.swing / 100).toFixed(1) }}</span>
-                      </button>
-                    </div>
-                  </div>
-
                 </div>
               </template>
             </div>
