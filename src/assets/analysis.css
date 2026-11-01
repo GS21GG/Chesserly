@@ -2644,6 +2644,13 @@ button,
         padding: 0;
     }
 
+    .large-acc {
+        height: 22px;
+        width: 22px;
+        margin-top: 5.5px;
+        align-self: start;
+    }
+
     .bestmove {
         font-size: 0.85rem;
         margin: 0 0 0.3rem;
