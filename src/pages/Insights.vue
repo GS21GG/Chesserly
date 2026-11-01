@@ -4,6 +4,7 @@
   import { auth, db } from '../firebase'
   import { onAuthStateChanged } from 'firebase/auth'
   import { collection, query, orderBy, getDocs } from 'firebase/firestore'
+  import { accuracySymbol } from '../assets/accuracy.js'
 
   // --- Theme Management ---
   const currentTheme = ref(localStorage.getItem('chesslab_theme') || 'midnight')
@@ -69,14 +70,14 @@
 
   function getAccuracyMeta(acc) {
     if (acc === null || acc === undefined) return { label: 'N/A', icon: null, color: '#666' }
-    if (acc >= 95) return { label: 'Brilliant', icon: '/moveClassifications/brilliant.png', color: '#03aea7' }
-    if (acc >= 90) return { label: 'Great', icon: '/moveClassifications/great.png', color: '#8eae83' }
-    if (acc >= 80) return { label: 'Best', icon: '/moveClassifications/best.png', color: '#6ad13f' }
-    if (acc >= 70) return { label: 'Excellent', icon: '/moveClassifications/excellent.png', color: '#90bc36' }
-    if (acc >= 60) return { label: 'Good', icon: '/moveClassifications/good.png', color: '#f2bc43' }
-    if (acc >= 50) return { label: 'Inaccuracy', icon: '/moveClassifications/inaccuracy.png', color: '#f2bc43' }
-    if (acc >= 40) return { label: 'Mistake', icon: '/moveClassifications/mistake.png', color: '#f38800' }
-    return { label: 'Blunder', icon: '/moveClassifications/blunder.png', color: '#FF0000' }
+    if (acc >= 95) return { label: 'Brilliant', icon: accuracySymbol('brilliant'), color: '#03aea7' }
+    if (acc >= 90) return { label: 'Great', icon: accuracySymbol('great'), color: '#8eae83' }
+    if (acc >= 80) return { label: 'Best', icon: accuracySymbol('best'), color: '#6ad13f' }
+    if (acc >= 70) return { label: 'Excellent', icon: accuracySymbol('excellent'), color: '#90bc36' }
+    if (acc >= 60) return { label: 'Good', icon: accuracySymbol('good'), color: '#f2bc43' }
+    if (acc >= 50) return { label: 'Inaccuracy', icon: accuracySymbol('inaccuracy'), color: '#f2bc43' }
+    if (acc >= 40) return { label: 'Mistake', icon: accuracySymbol('mistake'), color: '#f38800' }
+    return { label: 'Blunder', icon: accuracySymbol('blunder'), color: '#FF0000' }
   }
 
   // --- Core Stats ---
@@ -539,15 +540,15 @@
 
   // --- Classification Meta ---
   const classificationMeta = {
-    brilliant: { label: 'Brilliant', color: '#03aea7', icon: '/moveClassifications/brilliant.png' },
-    great: { label: 'Great', color: '#4c8cb5', icon: '/moveClassifications/great.png' },
-    best: { label: 'Best', color: '#6ad13f', icon: '/moveClassifications/best.png' },
-    book: { label: 'Book', color: '#ad8760', icon: '/moveClassifications/book.png' },
-    excellent: { label: 'Excellent', color: '#90bc36', icon: '/moveClassifications/excellent.png' },
-    good: { label: 'Good', color: '#8eae83', icon: '/moveClassifications/good.png' },
-    inaccuracy: { label: 'Inaccuracy', color: '#f2bc43', icon: '/moveClassifications/inaccuracy.png' },
-    mistake: { label: 'Mistake', color: '#f38800', icon: '/moveClassifications/mistake.png' },
-    blunder: { label: 'Blunder', color: '#FF0000', icon: '/moveClassifications/blunder.png' }
+    brilliant: { label: 'Brilliant', color: '#03aea7', icon: accuracySymbol('brilliant') },
+    great: { label: 'Great', color: '#4c8cb5', icon: accuracySymbol('great') },
+    best: { label: 'Best', color: '#6ad13f', icon: accuracySymbol('best') },
+    book: { label: 'Book', color: '#ad8760', icon: accuracySymbol('book') },
+    excellent: { label: 'Excellent', color: '#90bc36', icon: accuracySymbol('excellent') },
+    good: { label: 'Good', color: '#8eae83', icon: accuracySymbol('good') },
+    inaccuracy: { label: 'Inaccuracy', color: '#f2bc43', icon: accuracySymbol('inaccuracy') },
+    mistake: { label: 'Mistake', color: '#f38800', icon: accuracySymbol('mistake') },
+    blunder: { label: 'Blunder', color: '#FF0000', icon: accuracySymbol('blunder') }
   }
 
   const moveCountsBarSegments = computed(() => {

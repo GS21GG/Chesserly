@@ -464,6 +464,7 @@ function checkBrilliant({ isBest, isBook, isSac, eval_before, eval_after, moverI
 }
 
 // ---- Main: Evaluate One Move --------------------------------------------
+// ---- Main: Evaluate One Move --------------------------------------------
 export async function getEvaluation(move, movesList, depth, onUpdate = null, beforeFen = null, afterFen = null, rootFen = null, multiPV = 1, deliversMate = false, deliversStalemate = false) {
     // Take ownership: cancel whatever ran before and get a fresh id.
     // If another call comes in later, our id goes stale and we quietly return null.
@@ -477,9 +478,13 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
     const rootSideIsWhite = hasCustomRoot ? (rootFen.split(' ')[1] !== 'b') : true
     const moverIsWhite = rootSideIsWhite ? (afterMoves.length % 2 === 1) : (afterMoves.length % 2 === 0)
 
+    // The "before" position is only used for comparison, so it is capped at depth 14.
+    const BEFORE_DEPTH = 14
+    const beforeDepth = Math.min(depth, BEFORE_DEPTH)
+
     // The game ended with this move (checkmate or stalemate): the engine gives no score.
     if (deliversMate || deliversStalemate) {
-        const before = await analyzePosition(movesList, depth, null, 1, rootFen, myId)
+        const before = await analyzePosition(movesList, beforeDepth, null, 1, rootFen, myId)
         if (analysisId !== myId) return null
         let accuracy = "none"
         let eval_after = null
@@ -505,8 +510,8 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
 
     const isBook = isBookMove(movesList, move, hasCustomRoot)
 
-    // "Before" position: same depth, MultiPV 1.
-    const before = await analyzePosition(movesList, depth, null, 1, rootFen, myId)
+    // "Before" position: searched fresh at beforeDepth (MultiPV 1).
+    const before = await analyzePosition(movesList, beforeDepth, null, 1, rootFen, myId)
     if (analysisId !== myId || !before) return null
     const eval_before = before.evaluation
     const best_move = before.topMoves?.[0]?.Move ?? ""
