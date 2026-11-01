@@ -55,7 +55,7 @@ function createWorker() {
             const msg = e.data
             if (msg === 'uciok') {
                 worker.postMessage('setoption name MultiPV value 1')
-                worker.postMessage('setoption name Hash value 64')
+                worker.postMessage('setoption name Hash value 8')
                 worker.postMessage('ucinewgame')
                 worker.postMessage('isready')
             }
@@ -478,8 +478,8 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
     const rootSideIsWhite = hasCustomRoot ? (rootFen.split(' ')[1] !== 'b') : true
     const moverIsWhite = rootSideIsWhite ? (afterMoves.length % 2 === 1) : (afterMoves.length % 2 === 0)
 
-    // The "before" position is only used for comparison, so it is capped at depth 14.
-    const BEFORE_DEPTH = 14
+    // The "before" position is only used for comparison, so it is capped at depth 12.
+    const BEFORE_DEPTH = 12
     const beforeDepth = Math.min(depth, BEFORE_DEPTH)
 
     // The game ended with this move (checkmate or stalemate): the engine gives no score.

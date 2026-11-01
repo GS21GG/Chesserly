@@ -88,6 +88,11 @@
     rebuildEvalHistory()
   })
 
+  //listens for login and stores the user id
+  onMounted(() => {
+    onAuthStateChanged(auth, (user) => { if (user) currentUserId.value = user.uid })
+  })
+
   //runs when the page closes: removes listeners and timers so nothing leaks
   onBeforeUnmount(() => {
     window.removeEventListener('pointerdown', unlockAudio)
@@ -99,6 +104,7 @@
     clearTimeout(toastTimeout)
     clearTimeout(longPressTimer)
     clearTimeout(navHoldTimer)
+    cancelUiFlush()
     document.body.style.overflow = ''
   })
 
@@ -1034,9 +1040,11 @@
     movesListUCI.value = uciMoves
     currentNode.value = node
     boardAPI.value.setPosition(node.fen)
-    moveData.value = null
-    isAccuracy.value = " "
-    color.value = " "
+    if (!node.analysisData) {
+      moveData.value = null
+      isAccuracy.value = " "
+      color.value = " "
+    }
     recalcCapturedPieces()
     getAccuracy()
   }
@@ -1085,93 +1093,143 @@
   //counts analysis runs so old results are ignored
   let accuracyRun = 0
 
-  //runs the engine on the current position (uses saved results when they are good enough)
+  //throttled UI refresh: engine results are saved right away, but the screen
+  //is refreshed at most once per interval while the engine is running
+  let uiFlushTimer = null
+  let uiFlushFn = null
+
+  function scheduleUiFlush(fn, ms = 120) {
+    uiFlushFn = fn
+    if (uiFlushTimer) return
+    uiFlushTimer = setTimeout(flushUi, ms)
+  }
+
+  //runs the pending screen update right away
+  function flushUi() {
+    clearTimeout(uiFlushTimer)
+    uiFlushTimer = null
+    const fn = uiFlushFn
+    uiFlushFn = null
+    fn?.()
+  }
+
+  //drops any pending screen update (used when a new analysis starts)
+  function cancelUiFlush() {
+    clearTimeout(uiFlushTimer)
+    uiFlushTimer = null
+    uiFlushFn = null
+  }
+
+  //runs the engine on the current position (reuses saved results whenever they are good enough)
   async function getAccuracy() {
     const run = ++accuracyRun
+    //drop any screen update left over from the previous position
+    cancelUiFlush()
     //stop any engine work that is still running
     await cancelAnalysis()
     if (run !== accuracyRun) return
-    const cached = currentNode.value.analysisData
-    //do we need the multi-line result
-    const requiresMultiPV3 = !isImporting.value && isEngineEnabled.value
-    const hasRequiredMultiPV = !requiresMultiPV3 || !currentNode.value.san || (cached?.topMoves?.length >= analysisMultiPV.value)
-    //normal play uses at most depth 20, import uses the chosen depth
-    const depthNeeded = isImporting.value
-      ? targetDepth.value
-      : Math.min(targetDepth.value, 20)
-    //engine off: just show the saved result
-    if (!isImporting.value && !isEngineEnabled.value && cached) {
+
+    const node = currentNode.value
+    const cached = node.analysisData
+    const importing = isImporting.value
+
+    //depth and number of lines this position needs
+    const depthNeeded = importing ? targetDepth.value : Math.min(targetDepth.value, 20)
+    const pvNeeded = importing ? 1 : analysisMultiPV.value
+
+    //saved result is deep enough (or the engine already finished at this target, e.g. mate positions)
+    const depthOk = !!cached && (cached.depth >= depthNeeded || (node.doneDepth ?? 0) >= depthNeeded)
+    //saved result has enough lines
+    const pvOk = importing || !isEngineEnabled.value || !node.san || (node.pvUsed ?? 1) >= pvNeeded
+
+    //shows the saved result on screen
+    const showCached = () => {
       moveData.value = cached
       lastMoveSquare.value = movesListUCI.value.at(-1)?.slice(2, 4) ?? null
       lastMoveFromSquare.value = movesListUCI.value.at(-1)?.slice(0, 2) ?? null
       lastMoveAccuracy.value = cached.move_accuracy
       currentDepth.value = cached.depth
-      isAnalyzing.value = false
       evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
-      return
     }
-    //engine off and nothing saved: clear the display
-    if (!isImporting.value && !isEngineEnabled.value && !cached) {
-      moveData.value = null
-      isAccuracy.value = " "
-      color.value = " "
+
+    //engine off: just show the saved result (or clear the display)
+    if (!importing && !isEngineEnabled.value) {
+      if (cached) {
+        showCached()
+      } else {
+        moveData.value = null
+        isAccuracy.value = " "
+        color.value = " "
+      }
       isAnalyzing.value = false
       return
     }
-    //saved result is deep enough: use it without running the engine again
-    if (cached && cached.depth >= depthNeeded && hasRequiredMultiPV) {
-      moveData.value = cached
-      lastMoveSquare.value = movesListUCI.value.at(-1)?.slice(2, 4) ?? null
-      lastMoveFromSquare.value = movesListUCI.value.at(-1)?.slice(0, 2) ?? null
-      lastMoveAccuracy.value = cached.move_accuracy
-      currentDepth.value = cached.depth
+
+    //saved result is good enough: no engine run at all
+    if (depthOk && pvOk) {
+      showCached()
       isAnalyzing.value = false
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
       return
     }
+
     //show the old result while the engine works on a better one
-    if (cached && !hasRequiredMultiPV) {
-      moveData.value = cached
-      lastMoveSquare.value = movesListUCI.value.at(-1)?.slice(2, 4) ?? null
-      lastMoveFromSquare.value = movesListUCI.value.at(-1)?.slice(0, 2) ?? null
-      lastMoveAccuracy.value = cached.move_accuracy
-      currentDepth.value = cached.depth
-      evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
+    if (cached) showCached()
+
+    //wait briefly so fast clicking through moves doesn't restart the engine every time
+    if (!importing) {
+      await new Promise(r => setTimeout(r, 150))
+      if (run !== accuracyRun) return
     }
+
     isAnalyzing.value = true
     bestArrowSquares.value = null
-    //positions before and after the last move (for the engine)
-    const beforeFen = currentNode.value.parent ? currentNode.value.parent.fen : moveTree.fen
-    const afterFen = currentNode.value.fen
-    const depthToUse = isImporting.value
-      ? targetDepth.value
-      : (isEngineEnabled.value ? Math.min(targetDepth.value, 20) : targetDepth.value)
-    const multiPVToUse = isImporting.value ? 1 : analysisMultiPV.value
-    //asks the engine; the callback runs each time it finds a better result
+    const beforeFen = node.parent ? node.parent.fen : moveTree.fen
+    const afterFen = node.fen
+    const depthToUse = depthNeeded
+    const multiPVToUse = pvNeeded
+
     await getEvaluation(
       movesListUCI.value.length === 0 ? '' : movesListUCI.value.at(-1),
       movesListUCI.value.slice(0, -1),
       depthToUse,
       (result) => {
-        moveData.value = result
-        lastMoveSquare.value = movesListUCI.value.at(-1)?.slice(2, 4) ?? null
-        lastMoveFromSquare.value = movesListUCI.value.at(-1)?.slice(0, 2) ?? null
-        lastMoveAccuracy.value = result.move_accuracy
-        //saves the result on the node so we don't have to analyze again
-        currentNode.value.accuracy = result.move_accuracy
-        currentNode.value.analysisData = result
-        currentDepth.value = result.depth
-        isAnalyzing.value = result.depth < depthToUse
-        evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
-        if (!isImporting.value) treeVersion.value++
+        //save on the node that was analyzed, even if the user has moved on,
+        //so the work is never lost
+        node.accuracy = result.move_accuracy
+        node.analysisData = result
+        node.pvUsed = multiPVToUse
+
+        //only update the screen for the latest run
+        if (run !== accuracyRun) return
+        //during import nobody is watching the board, so skip the screen update
+        if (importing) return
+
+        //refresh the screen at most once per interval
+        scheduleUiFlush(() => {
+          if (run !== accuracyRun) return
+          moveData.value = result
+          lastMoveSquare.value = movesListUCI.value.at(-1)?.slice(2, 4) ?? null
+          lastMoveFromSquare.value = movesListUCI.value.at(-1)?.slice(0, 2) ?? null
+          lastMoveAccuracy.value = result.move_accuracy
+          currentDepth.value = result.depth
+          isAnalyzing.value = result.depth < depthToUse
+          evalSize(); moveDescription(); sanBest(); uciSecondLine(); uciThirdLine(); uciLine()
+          //graph and report need the latest eval, so refresh the tree data too
+          treeVersion.value++
+        })
       },
       beforeFen, afterFen, moveTree.fen,
       multiPVToUse,
       chess.isCheckmate(),
       chess.isStalemate()
     )
-    //engine finished: stop the thinking indicator
-    if (run === accuracyRun) isAnalyzing.value = false
+
+    //engine finished normally: show the final result and remember the target depth was reached
+    if (run === accuracyRun) {
+      flushUi()
+      isAnalyzing.value = false
+      if (!importCancelled && node.analysisData) node.doneDepth = depthToUse
+    }
   }
 
   //saves the new depth and re-runs the engine
@@ -1497,8 +1555,8 @@
       if (!importCancelled) {
         goToStart()
         treeVersion.value++
-        //saves the game and its stats to Firebase
-        await saveGameInsights()
+        //save in the background so the report opens right away
+        saveGameInsights().catch(e => console.warn('Saving game insights failed:', e))
         // open the maximized report with blurred background
         isReportMaximized.value = true
         activeTab.value = 'report'
@@ -1546,10 +1604,6 @@
   const currentUserId = ref(null)
   //game info from the URL, kept until the game is saved
   let pendingGameMeta = null
-  //listens for login and stores the user id
-  onMounted(() => {
-    onAuthStateChanged(auth, (user) => { if (user) currentUserId.value = user.uid })
-  })
 
   //keeps the game info from the URL up to date
   watch(() => route.query, (newQuery) => {
@@ -2134,7 +2188,7 @@
                 :class="{ active: item.node === currentNode, variant: item.variant }"
                 @click="handleCellClick(item.node.id)"
                 @contextmenu.prevent="openContextMenu($event, item.node.id)"
-                @touchstart="handleTouchStart($event, item.node.id)"
+                @touchstart.passive="handleTouchStart($event, item.node.id)"
                 @touchend="cancelLongPress"
                 @touchmove="cancelLongPress"
               >
@@ -2499,7 +2553,7 @@
                   @click="cell && handleCellClick(cell.node.id)"
                   @dblclick="cell && openNoteEditor(cell.node.id)"
                   @contextmenu.prevent="cell && openContextMenu($event, cell.node.id)"
-                  @touchstart="cell && handleTouchStart($event, cell.node.id)"
+                  @touchstart.passive="cell && handleTouchStart($event, cell.node.id)"
                   @touchend="cancelLongPress"
                   @touchmove="cancelLongPress"
                 >
