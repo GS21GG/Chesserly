@@ -734,7 +734,7 @@
 
 <template>
   <div class="page-layout">
-    <Title />
+    <Title/>
 
     <main class="import-shell">
       <h1 class="page-title">Import a game</h1>

@@ -34,6 +34,7 @@
     if (route.path === '/Insights') return 'insight'
     if (route.path === '/vsComputer') return 'computer'
     if (route.path === '/Puzzles') return 'puzzles'
+    if (route.path === '/Privacy') return null
     return 'analyze'
   })
 </script>
@@ -131,6 +132,9 @@
         </svg>
         Puzzles
       </button>
+      <RouterLink to="/Privacy" class="privacy-btn" @click="menuOpen = false">
+        Privacy Policy
+      </RouterLink>
     </nav>
   </div>
 </template>
@@ -387,5 +391,21 @@
     .tooltip-btn::after {
       bottom: 125%;
     }
+  }
+
+  .privacy-btn {
+    margin-top: 1.5rem;
+    color: #ffffff;
+    font-size: 0.9rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    opacity: 0.8;
+    text-align: center;
+  }
+  .privacy-btn:hover { opacity: 1; }
+  .privacy-btn:focus-visible { outline: 2px solid #faedcd; outline-offset: 3px; }
+
+  @media (max-width: 767px) {
+    .privacy-btn { margin: 0.9rem 0 0.4rem; }
   }
 </style>

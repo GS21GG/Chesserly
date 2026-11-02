@@ -7,13 +7,15 @@ import Review from './pages/Review.vue'
 import Play from './pages/Play.vue'
 import Insights from './pages/Insights.vue'
 import Puzzles from './pages/Puzzles.vue'
+import Privacy from './pages/Privacy.vue'
 
 const routes = [
 	{ path: "/", component: Analysis },
 	{ path: "/Review", component: Review },
 	{ path: "/Insights", component: Insights },
 	{ path: "/vsComputer", component: Play }, 
-	{ path: '/Puzzles', name: 'Puzzles', component: Puzzles}
+	{ path: '/Puzzles', name: 'Puzzles', component: Puzzles },
+	{ path: '/Privacy', name: 'Privacy', component: Privacy }
 ]
 
 const router = createRouter({
@@ -21,7 +23,6 @@ const router = createRouter({
 	routes
 })
 
-// 👇 Add this hook to capture sub-page transitions automatically
 router.afterEach((to) => {
   if (typeof window.gtag === 'function') {
     window.gtag('config', 'G-GYKFRBMF29', {
