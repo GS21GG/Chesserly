@@ -56,14 +56,15 @@
 				<section id="device">
 					<h2>3. Information stored on your device</h2>
 					<p>Chesserly stores some data in your browser's local storage, such as cached analysis results, your display preferences and the username you last entered. This data stays on your device and isn't sent to us.</p>
-					<p>If you log in, Firebase Authentication also keeps a login session in your browser's storage so you stay signed in. This is essential for the app to work. Google Analytics, if enabled, sets cookies as described below. We don't use advertising cookies.</p>
+					<p>If you log in, Firebase Authentication also keeps a login session in your browser's storage so you stay signed in. This is essential for the app to work. We don't use advertising cookies.</p>
 				</section>
 
 				<section id="analytics">
 					<h2>4. Analytics</h2>
-					<p>We use one analytics tool to understand how the app is used and to improve it:</p>
+					<p>We use a privacy-focused analytics tool to understand how the app is used and to improve it:</p>
 					<ul>
 						<li><strong>Umami:</strong> a privacy-focused analytics tool. It doesn't use cookies and doesn't track you across websites. It records things like pages visited, referrer, browser, operating system, device type and approximate country.</li>
+					</ul>
 				</section>
 
 				<section id="use">
@@ -72,7 +73,6 @@
 						<li>To provide the app and let you log in and access your saved games (to perform our service to you)</li>
 						<li>To keep the service secure and working (our legitimate interest)</li>
 						<li>To understand usage and improve the app using Umami (our legitimate interest)</li>
-						<li>To measure usage with Google Analytics (with your consent, where required)</li>
 						<li>To respond to your requests and comply with the law</li>
 					</ul>
 				</section>
@@ -85,7 +85,7 @@
 						<li><strong>Firebase (Google):</strong> manages account login and stores your saved games.</li>
 						<li><strong>Cloudflare:</strong> hosts the app and delivers it to you.</li>
 						<li><strong>Google Fonts:</strong> loads the fonts used in the app, which means your browser contacts Google's servers.</li>
-						<li><strong>Umami and Google Analytics:</strong> analytics, as described above.</li>
+						<li><strong>Umami:</strong> analytics, as described above.</li>
 					</ul>
 				</section>
 
