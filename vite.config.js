@@ -24,16 +24,6 @@ export default defineConfig({
         target: 'https://chesserly.blitzo.workers.dev',
         changeOrigin: true,
       },
-      '/assets/core-utils.js': {
-        target: 'https://cloud.umami.is',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/assets\/core-utils.js/, '/script.js'),
-      },
-      '/api/heartbeat': {
-        target: 'https://cloud.umami.is',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/heartbeat/, '/api/send'),
-      }
     }
   }
 })
