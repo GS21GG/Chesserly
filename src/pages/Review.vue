@@ -7,11 +7,12 @@
   import { onAuthStateChanged } from 'firebase/auth'
   import {
     collection, addDoc, query, where, getDocs, serverTimestamp,
-    deleteDoc, doc, orderBy
+    deleteDoc, doc, orderBy, limit, startAfter
   } from 'firebase/firestore'
 
   const router = useRouter()
   const USERNAME_STORAGE_KEY = 'chesslab_username'
+  const LIBRARY_PAGE_SIZE = 20
   const username = ref(localStorage.getItem(USERNAME_STORAGE_KEY) || '')
 
   // --- Apply theme instantly on script load to prevent refresh flashing ---
@@ -44,7 +45,7 @@
   const selectedGame = ref(null)
   const loading = ref(false)
   const error = ref(null)
-  const info = ref(null) // non-error notes (e.g. Chess.com archive lag)
+  const info = ref(null)
   const showChessComDelayWarning = ref(false)
   const gameUci = ref([])
   const reviewMoves = ref([])
@@ -58,12 +59,18 @@
   const savedGames = ref([])
   const saveStatus = ref('')
 
+  // --- Library paging (saves Firestore reads) ---
+  const lastDoc = ref(null)
+  const hasMore = ref(false)
+  const libraryLoaded = ref(false)
+  const libraryLoading = ref(false)
+
   // --- Browsing / filtering state (shared by fetched games + library) ---
   const tcFilter = ref('all')
   const opponentSearch = ref('')
 
-  // --- Simple computed helpers for the UI ---
   const isOnlineSource = computed(() => importSite.value === 'chess.com' || importSite.value === 'lichess')
+  const isLibrary = computed(() => importSite.value === 'library')
 
   const monthShort = computed(() =>
     new Date(periodYear.value, periodMonth.value - 1, 1).toLocaleString('default', { month: 'short' })
@@ -99,8 +106,7 @@
   }
   const tcKey = (g) => (g?.time_class || 'unknown').toLowerCase()
 
-  // The list currently being browsed (library tab vs fetched results)
-  const activeSource = computed(() => importSite.value === 'library' ? savedGames.value : games.value)
+  const activeSource = computed(() => isLibrary.value ? savedGames.value : games.value)
 
   const tcCounts = computed(() => {
     const counts = new Map()
@@ -133,70 +139,80 @@
     return list
   })
 
-  const overallStats = computed(() => statsFor(filteredGames.value))
+  // Work out each row once, instead of calling formatResult many times in the template
+  const rows = computed(() =>
+    filteredGames.value.map((game, i) => ({ game, key: game.id || `g-${i}`, ...formatResult(game) }))
+  )
 
-  const displayedGroups = computed(() => {
-    const keys = tcFilter.value === 'all'
-      ? TC_ORDER.filter(k => tcCounts.value.has(k))
-      : [tcFilter.value]
-    return keys
-      .map(key => {
-        const groupGames = filteredGames.value
-          .filter(g => tcKey(g) === key)
-          .sort((a, b) => sortValue(b) - sortValue(a))
-        return { key, label: TC_LABELS[key] || key, games: groupGames, stats: statsFor(groupGames) }
-      })
-      .filter(g => g.games.length > 0)
-  })
-
-  function sortValue(g) {
-    const d = g.date ? g.date.getTime() : 0
-    return d || g.savedAt || 0
-  }
-
-  function statsFor(list) {
+  const overallStats = computed(() => {
     const s = { w: 0, l: 0, d: 0 }
-    for (const g of list) {
-      const o = formatResult(g).outcome
-      if (o === 'win') s.w++
-      else if (o === 'loss') s.l++
+    for (const r of rows.value) {
+      if (r.outcome === 'win') s.w++
+      else if (r.outcome === 'loss') s.l++
       else s.d++
     }
     return s
+  })
+
+  const countLabel = computed(() => {
+    const total = activeSource.value.length
+    if (total <= 1) return '1 game'
+    const plus = isLibrary.value && hasMore.value ? '+' : ''
+    return filteredGames.value.length === total
+      ? `${total}${plus} games`
+      : `${filteredGames.value.length} of ${total}${plus}`
+  })
+
+  // --- Library (Firestore) ---
+  function mapSavedDoc(d) {
+    const data = d.data()
+    return {
+      id: d.id,
+      pgn: data.pgn || '',
+      time_class: data.time_class || 'unknown',
+      savedAt: data.createdAt?.toMillis?.() || 0,
+      date: typeof data.playedAt === 'number' ? new Date(data.playedAt) : null,
+      white: {
+        username: data.white?.username || 'White',
+        rating: data.white?.rating || 0,
+        result: data.white?.result || 'unknown'
+      },
+      black: {
+        username: data.black?.username || 'Black',
+        rating: data.black?.rating || 0,
+        result: data.black?.result || 'unknown'
+      }
+    }
   }
 
-  async function fetchSavedGames() {
-    if (!currentUser.value) return
+  // First call loads page 1. fetchSavedGames(true) loads the next page.
+  async function fetchSavedGames(more = false) {
+    if (!currentUser.value || libraryLoading.value) return
+    libraryLoading.value = true
     try {
-      const q = query(
-        collection(db, `users/${currentUser.value.uid}/games`),
-        orderBy('createdAt', 'desc')
+      const parts = [orderBy('createdAt', 'desc'), limit(LIBRARY_PAGE_SIZE)]
+      if (more && lastDoc.value) parts.push(startAfter(lastDoc.value))
+
+      const snap = await getDocs(
+        query(collection(db, `users/${currentUser.value.uid}/games`), ...parts)
       )
-      const querySnapshot = await getDocs(q)
-      savedGames.value = querySnapshot.docs.map(d => {
-        const data = d.data()
-        return {
-          id: d.id,
-          pgn: data.pgn || '',
-          time_class: data.time_class || 'unknown',
-          savedAt: data.createdAt?.toMillis?.() || 0,
-          date: typeof data.playedAt === 'number' ? new Date(data.playedAt) : null,
-          white: {
-            username: data.white?.username || 'White',
-            rating: data.white?.rating || 0,
-            result: data.white?.result || 'unknown'
-          },
-          black: {
-            username: data.black?.username || 'Black',
-            rating: data.black?.rating || 0,
-            result: data.black?.result || 'unknown'
-          }
-        }
-      })
+      const page = snap.docs.map(mapSavedDoc)
+      savedGames.value = more ? [...savedGames.value, ...page] : page
+      if (snap.docs.length) lastDoc.value = snap.docs[snap.docs.length - 1]
+      hasMore.value = snap.docs.length === LIBRARY_PAGE_SIZE
+      libraryLoaded.value = true
     } catch (e) {
       console.error('Failed to fetch saved games:', e)
-      savedGames.value = []
+    } finally {
+      libraryLoading.value = false
     }
+  }
+
+  function resetLibrary() {
+    savedGames.value = []
+    lastDoc.value = null
+    hasMore.value = false
+    libraryLoaded.value = false
   }
 
   function generatePgnHash(pgn) {
@@ -212,23 +228,35 @@
   async function autoSaveGame() {
     if (!currentUser.value || !selectedGame.value) return
     try {
+      const g = selectedGame.value
       const gamesRef = collection(db, `users/${currentUser.value.uid}/games`)
-      const pgnHash = generatePgnHash(selectedGame.value.pgn)
+      const pgnHash = generatePgnHash(g.pgn)
 
-      const dupQ = query(gamesRef, where('pgnHash', '==', pgnHash))
-      const dupSnap = await getDocs(dupQ)
+      const dupSnap = await getDocs(query(gamesRef, where('pgnHash', '==', pgnHash), limit(1)))
       if (!dupSnap.empty) return
 
-      await addDoc(gamesRef, {
-        pgn: selectedGame.value.pgn,
-        pgnHash: pgnHash,
-        white: selectedGame.value.white,
-        black: selectedGame.value.black,
-        time_class: selectedGame.value.time_class,
-        playedAt: selectedGame.value.date ? selectedGame.value.date.getTime() : null,
+      const created = await addDoc(gamesRef, {
+        pgn: g.pgn,
+        pgnHash,
+        white: g.white,
+        black: g.black,
+        time_class: g.time_class,
+        playedAt: g.date ? g.date.getTime() : null,
         createdAt: serverTimestamp()
       })
-      await fetchSavedGames()
+
+      // Add it to the list locally. No need to read the library again.
+      if (libraryLoaded.value) {
+        savedGames.value = [{
+          id: created.id,
+          pgn: g.pgn,
+          time_class: g.time_class || 'unknown',
+          savedAt: Date.now(),
+          date: g.date || null,
+          white: g.white,
+          black: g.black
+        }, ...savedGames.value]
+      }
     } catch (e) {
       console.error('Auto-save failed:', e)
       saveStatus.value = 'Could not save this game.'
@@ -253,20 +281,17 @@
   function cleanPgn(pgn) {
     if (!pgn) return ''
     let cleaned = pgn
-      .replace(/\{[^}]*\}/g, ' ')    // Remove comments
-      .replace(/\$\d+/g, ' ')         // Remove NAGs
-      .replace(/\s*e\.p\.\s*/g, ' ')  // Remove en passant annotations
+      .replace(/\{[^}]*\}/g, ' ')
+      .replace(/\$\d+/g, ' ')
+      .replace(/\s*e\.p\.\s*/g, ' ')
 
-    // Remove nested variations
     let prev
     do {
       prev = cleaned
       cleaned = cleaned.replace(/\([^()]*\)/g, ' ')
     } while (cleaned !== prev)
 
-    // Normalize whitespace
-    cleaned = cleaned.replace(/\s+/g, ' ').trim()
-    return cleaned
+    return cleaned.replace(/\s+/g, ' ').trim()
   }
 
   function normalizeChessCom(g) {
@@ -536,7 +561,7 @@
     if (mode === 'range') loadMonth()
   })
 
-  // Switching source clears the old list. Month mode reloads for the new site.
+  // Switching source clears the old list. The library loads only when you open it.
   watch(importSite, (site) => {
     tcFilter.value = 'all'
     opponentSearch.value = ''
@@ -547,14 +572,15 @@
     loading.value = false
     games.value = []
     selectedGame.value = null
+    if (site === 'library' && currentUser.value && !libraryLoaded.value) fetchSavedGames()
     if ((site === 'chess.com' || site === 'lichess') && importMode.value === 'range') loadMonth()
   })
 
   onMounted(() => {
     onAuthStateChanged(auth, (user) => {
       currentUser.value = user
-      if (user) fetchSavedGames()
-      else savedGames.value = []
+      resetLibrary()
+      if (user && isLibrary.value) fetchSavedGames()
     })
     window.addEventListener('keydown', onArrowKey)
   })
@@ -751,29 +777,14 @@
             :class="{ active: importSite === s.value }"
             :aria-selected="importSite === s.value"
             @click="importSite = s.value"
-          >
-            {{ s.label }}
-            <span
-              v-if="s.value === 'library' && savedGames.length"
-              class="tab-count"
-            >{{ savedGames.length }}</span>
-          </button>
+          >{{ s.label }}</button>
         </nav>
 
-        <!-- Chess.com / Lichess controls -->
+        <!-- Chess.com / Lichess -->
         <section v-if="isOnlineSource" class="controls">
-          <div class="mode-switch">
-            <button
-              type="button"
-              :class="{ active: importMode === 'last' }"
-              @click="importMode = 'last'"
-            >Latest game</button>
-            <span class="mode-sep">/</span>
-            <button
-              type="button"
-              :class="{ active: importMode === 'range' }"
-              @click="importMode = 'range'"
-            >By month</button>
+          <div class="segmented" role="group" aria-label="Import mode">
+            <button type="button" :class="{ active: importMode === 'last' }" @click="importMode = 'last'">Latest game</button>
+            <button type="button" :class="{ active: importMode === 'range' }" @click="importMode = 'range'">By month</button>
           </div>
 
           <div class="control-row">
@@ -787,57 +798,22 @@
               @keyup.enter="importMode === 'range' ? loadMonth() : chessImport()"
             />
 
-            <button
-              v-if="importMode === 'last'"
-              class="btn"
-              :disabled="loading"
-              @click="chessImport"
-            >
+            <button v-if="importMode === 'last'" class="btn" :disabled="loading" @click="chessImport">
               <span v-if="loading" class="spinner"></span>
               {{ loading ? 'Loading…' : 'Get game' }}
             </button>
 
             <div v-else class="month-nav">
               <div class="stepper">
-                <button
-                  type="button"
-                  class="step"
-                  :disabled="!canGoPrevMonth || loading"
-                  aria-label="Previous month"
-                  title="Previous month (←)"
-                  @click="shiftMonth(-1)"
-                >‹</button>
+                <button type="button" class="step" :disabled="!canGoPrevMonth || loading" aria-label="Previous month" title="Previous month (←)" @click="shiftMonth(-1)">‹</button>
                 <span class="step-value">{{ monthShort }}</span>
-                <button
-                  type="button"
-                  class="step"
-                  :disabled="!canGoNextMonth || loading"
-                  aria-label="Next month"
-                  title="Next month (→)"
-                  @click="shiftMonth(1)"
-                >›</button>
+                <button type="button" class="step" :disabled="!canGoNextMonth || loading" aria-label="Next month" title="Next month (→)" @click="shiftMonth(1)">›</button>
               </div>
-
               <div class="stepper">
-                <button
-                  type="button"
-                  class="step"
-                  :disabled="!canGoPrevYear || loading"
-                  aria-label="Previous year"
-                  title="Previous year (↓)"
-                  @click="shiftYear(-1)"
-                >‹</button>
+                <button type="button" class="step" :disabled="!canGoPrevYear || loading" aria-label="Previous year" title="Previous year (↓)" @click="shiftYear(-1)">‹</button>
                 <span class="step-value year">{{ periodYear }}</span>
-                <button
-                  type="button"
-                  class="step"
-                  :disabled="!canGoNextYear || loading"
-                  aria-label="Next year"
-                  title="Next year (↑)"
-                  @click="shiftYear(1)"
-                >›</button>
+                <button type="button" class="step" :disabled="!canGoNextYear || loading" aria-label="Next year" title="Next year (↑)" @click="shiftYear(1)">›</button>
               </div>
-
               <span class="spinner-slot"><span v-if="loading" class="spinner small"></span></span>
             </div>
           </div>
@@ -878,12 +854,15 @@
           </div>
         </section>
 
-        <!-- Library empty states -->
-        <section v-if="importSite === 'library' && !currentUser" class="empty">
+        <!-- Library states -->
+        <section v-if="isLibrary && !currentUser" class="empty">
           <p class="empty-title">Log in to see your library</p>
           <p class="empty-text">Use the login button at the top right corner.</p>
         </section>
-        <section v-else-if="importSite === 'library' && savedGames.length === 0" class="empty">
+        <section v-else-if="isLibrary && libraryLoading && !savedGames.length" class="empty">
+          <span class="spinner small"></span>
+        </section>
+        <section v-else-if="isLibrary && libraryLoaded && !savedGames.length" class="empty">
           <p class="empty-title">Your library is empty</p>
           <p class="empty-text">Analyse a game and it will be saved here.</p>
         </section>
@@ -892,12 +871,7 @@
         <div v-if="error" class="notice error">{{ error }}</div>
         <div v-if="info" class="notice warn">
           <p>{{ info }}</p>
-          <button
-            v-if="showChessComDelayWarning"
-            type="button"
-            class="link-btn"
-            @click="importSite = 'pgn'"
-          >Paste a PGN instead</button>
+          <button v-if="showChessComDelayWarning" type="button" class="link-btn" @click="importSite = 'pgn'">Paste a PGN instead</button>
         </div>
         <div v-if="saveStatus" class="notice ok">{{ saveStatus }}</div>
 
@@ -908,86 +882,79 @@
               <span class="w">{{ overallStats.w }}W</span>
               <span class="l">{{ overallStats.l }}L</span>
               <span class="d">{{ overallStats.d }}D</span>
-              <span class="count">
-                · <template v-if="activeSource.length > 1">{{ filteredGames.length }} of {{ activeSource.length }}</template><template v-else>1 game</template>
-              </span>
+              <span class="count">{{ countLabel }}</span>
             </div>
 
             <div v-if="activeSource.length > 1" class="search-wrap">
-              <input
-                v-model="opponentSearch"
-                class="input search"
-                placeholder="Search player"
-                aria-label="Search by player"
-                spellcheck="false"
-              />
-              <button
-                v-if="opponentSearch"
-                type="button"
-                class="clear-btn"
-                aria-label="Clear search"
-                @click="clearSearch"
-              >×</button>
+              <input v-model="opponentSearch" class="input search" placeholder="Search player" aria-label="Search by player" spellcheck="false" />
+              <button v-if="opponentSearch" type="button" class="clear-btn" aria-label="Clear search" @click="clearSearch">×</button>
             </div>
           </div>
 
-          <div v-if="timeControlTabs.length > 2" class="tc-tabs">
+          <div v-if="rows.length" class="winbar" aria-hidden="true">
+            <span class="w" :style="{ flexGrow: overallStats.w }"></span>
+            <span class="d" :style="{ flexGrow: overallStats.d }"></span>
+            <span class="l" :style="{ flexGrow: overallStats.l }"></span>
+          </div>
+
+          <div v-if="timeControlTabs.length > 2" class="chips">
             <button
               v-for="tab in timeControlTabs"
               :key="tab.value"
               type="button"
-              class="tc-tab"
-              :class="[tab.value, { active: tcFilter === tab.value }]"
+              class="chip"
+              :class="{ active: tcFilter === tab.value }"
               @click="tcFilter = tab.value"
+            >{{ tab.label }}<span class="chip-count">{{ tab.count }}</span></button>
+          </div>
+
+          <div class="list">
+            <div
+              v-for="r in rows"
+              :key="r.key"
+              class="row"
+              :class="[r.outcome, { selected: isSelected(r.game) }]"
+              role="button"
+              tabindex="0"
+              @click="selectGame(r.game)"
+              @keydown.enter.prevent="selectGame(r.game)"
             >
-              {{ tab.label }}<span class="tc-count">{{ tab.count }}</span>
-            </button>
-          </div>
+              <span class="dot" :class="r.myColor.toLowerCase()" :title="'You played ' + r.myColor.toLowerCase()"></span>
 
-          <div class="groups">
-            <div v-for="group in displayedGroups" :key="group.key" class="group">
-              <header v-if="displayedGroups.length > 1" class="group-head">
-                <span class="group-name">{{ group.label }}</span>
-                <span class="group-line"></span>
-                <span class="group-stats">{{ group.stats.w }}W {{ group.stats.l }}L {{ group.stats.d }}D</span>
-              </header>
+              <span class="who">
+                <span class="opponent">{{ r.opponent }}</span>
+                <span class="rating">{{ r.oppRating }}</span>
+              </span>
 
-              <div
-                v-for="(game, i) in group.games"
-                :key="group.key + '-' + i"
-                class="row"
-                :class="[formatResult(game).outcome, { selected: isSelected(game) }]"
-                role="button"
-                tabindex="0"
-                @click="selectGame(game)"
-                @keydown.enter.prevent="selectGame(game)"
-              >
-                <span
-                  class="piece"
-                  :title="'You played ' + formatResult(game).myColor.toLowerCase()"
-                >{{ formatResult(game).myColor === 'White' ? '♔' : '♚' }}</span>
+              <span class="meta">
+                {{ TC_LABELS[tcKey(r.game)] }}<template v-if="formatDate(r.game)"> · {{ formatDate(r.game) }}</template>
+              </span>
 
-                <span class="opponent">{{ formatResult(game).opponent }}</span>
+              <span class="result">{{ r.result }}</span>
 
-                <span class="meta">
-                  <template v-if="formatDate(game)">{{ formatDate(game) }}<i>·</i></template>{{ formatResult(game).myRating }}<i>/</i>{{ formatResult(game).oppRating }}
-                </span>
-
-                <span class="result">{{ formatResult(game).result }}</span>
-
-                <button
-                  v-if="game.id"
-                  type="button"
-                  class="delete"
-                  aria-label="Delete game"
-                  title="Delete game"
-                  @click="deleteSavedGame(game.id, $event)"
-                >×</button>
-              </div>
+              <button
+                v-if="r.game.id"
+                type="button"
+                class="delete"
+                aria-label="Delete game"
+                title="Delete game"
+                @click="deleteSavedGame(r.game.id, $event)"
+              >×</button>
             </div>
+
+            <p v-if="rows.length === 0" class="no-match">No games match your filters.</p>
           </div>
 
-          <p v-if="filteredGames.length === 0" class="no-match">No games match your filters.</p>
+          <button
+            v-if="isLibrary && hasMore"
+            type="button"
+            class="more-btn"
+            :disabled="libraryLoading"
+            @click="fetchSavedGames(true)"
+          >
+            <span v-if="libraryLoading" class="spinner small"></span>
+            {{ libraryLoading ? 'Loading…' : 'View more' }}
+          </button>
         </section>
       </div>
 
@@ -998,147 +965,132 @@
           <span class="vs">vs</span>
           {{ selectedGame.black.username }} <em>{{ selectedGame.black.rating }}</em>
         </span>
-        <button class="btn" @click="analyseGame">Analyse →</button>
+        <button class="btn" @click="analyseGame">Analyse</button>
       </div>
     </main>
   </div>
 </template>
 
 <style scoped>
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap');
 
   .page-layout {
-    --ink: #f4f0e3;
-    --ink-soft: rgba(244, 240, 227, 0.7);
-    --ink-faint: rgba(244, 240, 227, 0.42);
-    --line: rgba(255, 255, 255, 0.07);
-    --line-strong: rgba(255, 255, 255, 0.14);
-    --win: #8fc06a;
-    --loss: #d9736a;
-    --draw: #d9b36a;
+    --ink: #eeeae0;
+    --ink-soft: rgba(238, 234, 224, 0.64);
+    --ink-faint: rgba(238, 234, 224, 0.38);
+    --line: rgba(255, 255, 255, 0.06);
+    --line-strong: rgba(255, 255, 255, 0.12);
+    --surface: var(--panel-1, #1f1e1b);
+    --win: #9bc77c;
+    --loss: #d98a80;
+    --draw: #d4b77a;
     --gold: var(--text-highlight, #d9b382);
 
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     display: grid;
     grid-template-columns: 1fr;
     gap: 0.75rem;
-    padding: clamp(0.5rem, 2vw, 1rem);
+    padding: clamp(0.75rem, 2vw, 1.25rem);
     box-sizing: border-box;
     color: var(--ink);
   }
 
   @media (min-width: 768px) {
-    .page-layout { grid-template-columns: auto minmax(0, 1fr); gap: 1.25rem; }
+    .page-layout { grid-template-columns: auto minmax(0, 1fr); gap: 1.5rem; }
   }
 
   .import-shell {
     width: 100%;
-    max-width: 720px;
+    max-width: 640px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1.25rem;
     min-width: 0;
-    padding-bottom: 3.5rem;
+    padding-bottom: 4rem;
   }
 
   .page-title {
-    margin: 0.1rem 0 0;
-    font-family: 'Cormorant Garamond', serif;
-    font-size: clamp(1.7rem, 4vw, 2.2rem);
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    color: #f5f5dc;
-    line-height: 1.1;
+    margin: 0.25rem 0 0;
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
   }
 
-  /* ---------- One card for everything ---------- */
   .card {
     border-radius: 14px;
     border: 1px solid var(--line);
-    background: linear-gradient(145deg, var(--panel-1, #262421), var(--panel-2, #1e1c18));
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    background: var(--surface);
     overflow: hidden;
   }
 
-  /* ---------- Tabs with an underline ---------- */
+  /* ---------- Source tabs ---------- */
   .source-tabs {
     display: flex;
-    gap: 0.15rem;
-    padding: 0 0.6rem;
+    gap: 1.25rem;
+    padding: 0 1.25rem;
     overflow-x: auto;
     border-bottom: 1px solid var(--line);
     scrollbar-width: none;
   }
-
   .source-tabs::-webkit-scrollbar { display: none; }
 
   .source-tab {
     position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.8rem 0.75rem;
+    padding: 0.95rem 0;
     border: none;
     background: transparent;
     color: var(--ink-faint);
     font: inherit;
-    font-size: 0.86rem;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
     transition: color 0.15s ease;
   }
-
   .source-tab:hover { color: var(--ink-soft); }
   .source-tab.active { color: var(--ink); }
-
   .source-tab.active::after {
     content: '';
     position: absolute;
-    left: 0.75rem;
-    right: 0.75rem;
+    left: 0;
+    right: 0;
     bottom: -1px;
-    height: 2px;
-    border-radius: 2px;
-    background: var(--gold);
-  }
-
-  .tab-count {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    color: var(--gold);
+    height: 1px;
+    background: var(--ink);
   }
 
   /* ---------- Controls ---------- */
   .controls {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
-    padding: 0.9rem 1rem;
+    gap: 0.9rem;
+    padding: 1.25rem;
   }
 
-  .mode-switch {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.82rem;
+  .segmented {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.25);
   }
-
-  .mode-switch button {
-    padding: 0;
+  .segmented button {
+    padding: 0.3rem 0.8rem;
     border: none;
-    background: none;
+    border-radius: 6px;
+    background: transparent;
     color: var(--ink-faint);
     font: inherit;
-    font-weight: 600;
+    font-size: 0.78rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: color 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease;
   }
-
-  .mode-switch button:hover { color: var(--ink-soft); }
-  .mode-switch button.active { color: var(--ink); }
-  .mode-sep { color: var(--ink-faint); opacity: 0.5; }
+  .segmented button:hover { color: var(--ink-soft); }
+  .segmented button.active { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
 
   .control-row {
     display: flex;
@@ -1149,29 +1101,26 @@
 
   .input {
     box-sizing: border-box;
-    padding: 0.5rem 0.7rem;
+    padding: 0.6rem 0.85rem;
     border: 1px solid var(--line);
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.28);
+    border-radius: 9px;
+    background: rgba(0, 0, 0, 0.2);
     color: var(--ink);
     font: inherit;
     font-size: 0.9rem;
     transition: border-color 0.15s ease;
   }
-
   .input::placeholder { color: var(--ink-faint); }
-  .input:focus { outline: none; border-color: var(--gold); }
-
+  .input:focus { outline: none; border-color: var(--line-strong); }
   .input.grow { flex: 1 1 10rem; min-width: 0; }
-
   .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
 
   .textarea {
     width: 100%;
     resize: vertical;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-    line-height: 1.5;
+    font-size: 0.78rem;
+    line-height: 1.55;
   }
 
   .actions-right { display: flex; justify-content: flex-end; }
@@ -1181,123 +1130,98 @@
     align-items: center;
     justify-content: center;
     gap: 0.45rem;
-    padding: 0.5rem 1.1rem;
+    padding: 0.6rem 1.1rem;
     border: none;
-    border-radius: 8px;
+    border-radius: 9px;
     background: var(--btn-active, #5a6b3d);
     color: #f5f5dc;
     font: inherit;
-    font-size: 0.86rem;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
     flex: 0 0 auto;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
-    transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+    transition: background 0.15s ease, opacity 0.15s ease;
   }
-
   .btn:hover:not(:disabled) { background: var(--btn-idle, #6b7d49); }
-  .btn:active:not(:disabled) { transform: translateY(1px); }
-  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .spinner {
-    width: 0.8rem;
-    height: 0.8rem;
+    width: 0.75rem;
+    height: 0.75rem;
     border-radius: 50%;
-    border: 2px solid rgba(245, 245, 220, 0.3);
+    border: 1.5px solid rgba(245, 245, 220, 0.25);
     border-top-color: #f5f5dc;
     animation: spin 0.7s linear infinite;
   }
-
-  .spinner.small {
-    border-color: rgba(217, 179, 130, 0.25);
-    border-top-color: var(--gold);
-  }
-
-  .spinner-slot { display: inline-flex; width: 0.8rem; height: 0.8rem; flex: 0 0 auto; }
-
+  .spinner.small { border-color: rgba(255, 255, 255, 0.12); border-top-color: var(--ink-soft); }
+  .spinner-slot { display: inline-flex; width: 0.75rem; height: 0.75rem; flex: 0 0 auto; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ---------- Month steppers ---------- */
-  .month-nav {
+  .month-nav { display: inline-flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; }
+
+  .stepper {
     display: inline-flex;
     align-items: center;
-    gap: 1rem;
-    flex: 0 0 auto;
+    gap: 2px;
   }
 
-  .stepper { display: inline-flex; align-items: center; }
-
   .step {
-    width: 1.7rem;
-    height: 1.9rem;
+    width: 1.6rem;
+    height: 1.7rem;
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: var(--ink-soft);
-    font-size: 1.25rem;
+    color: var(--ink-faint);
+    font-size: 1.1rem;
     line-height: 1;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: color 0.15s ease, background 0.15s ease;
   }
+  .step:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); color: var(--ink); }
+  .step:disabled { opacity: 0.2; cursor: not-allowed; }
 
-  .step:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
-  .step:disabled { opacity: 0.25; cursor: not-allowed; }
-
-  .step-value {
-    min-width: 2.5rem;
-    text-align: center;
-    font-weight: 600;
-    font-size: 0.92rem;
-  }
-
-  .step-value.year {
-    min-width: 3rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.86rem;
-    color: var(--gold);
-  }
+  .step-value { min-width: 2.4rem; text-align: center; font-weight: 500; font-size: 0.875rem; }
+  .step-value.year { min-width: 3rem; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--ink-soft); }
 
   /* ---------- Notices ---------- */
   .notice {
-    margin: 0 1rem 0.8rem;
-    padding: 0.5rem 0.75rem;
-    border-left: 3px solid;
-    border-radius: 4px 8px 8px 4px;
-    font-size: 0.83rem;
-    line-height: 1.4;
+    margin: 0 1.25rem 1rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    line-height: 1.45;
   }
-
   .notice p { margin: 0; }
-  .notice.error { color: #f0b4ac; border-color: var(--loss); background: rgba(217, 115, 106, 0.1); }
+  .notice.error { color: var(--loss); background: rgba(217, 138, 128, 0.08); }
   .notice.warn {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 0.3rem 1rem;
-    color: #e8c98a;
-    border-color: var(--draw);
-    background: rgba(217, 179, 106, 0.08);
+    color: var(--draw);
+    background: rgba(212, 183, 122, 0.08);
   }
-  .notice.ok { color: #b9dc97; border-color: var(--win); background: rgba(143, 192, 106, 0.1); }
+  .notice.ok { color: var(--win); background: rgba(155, 199, 124, 0.08); }
 
   .link-btn {
     padding: 0;
     border: none;
     background: none;
-    color: #f4d58f;
+    color: var(--ink);
     font: inherit;
-    font-weight: 600;
+    font-weight: 500;
     text-decoration: underline;
     text-underline-offset: 3px;
     cursor: pointer;
   }
 
   /* ---------- Empty states ---------- */
-  .empty { padding: 2rem 1rem; text-align: center; }
-  .empty-title { margin: 0 0 0.2rem; font-family: 'Cormorant Garamond', serif; font-size: 1.25rem; font-weight: 700; color: #f5f5dc; }
-  .empty-text { margin: 0; font-size: 0.83rem; color: var(--ink-faint); }
+  .empty { display: flex; flex-direction: column; align-items: center; padding: 2.5rem 1rem; text-align: center; }
+  .empty-title { margin: 0 0 0.3rem; font-size: 1rem; font-weight: 600; color: var(--ink); }
+  .empty-text { margin: 0; font-size: 0.82rem; color: var(--ink-faint); }
 
   /* ---------- Results ---------- */
   .results { border-top: 1px solid var(--line); }
@@ -1307,245 +1231,222 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    padding: 0.6rem 1rem;
+    padding: 1rem 1.25rem 0.75rem;
   }
 
   .record {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: 0.6rem;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    font-weight: 700;
+    font-size: 0.75rem;
+    font-weight: 600;
     white-space: nowrap;
   }
-
   .record .w { color: var(--win); }
   .record .l { color: var(--loss); }
   .record .d { color: var(--draw); }
-  .record .count { color: var(--ink-faint); font-weight: 500; }
+  .record .count { margin-left: 0.25rem; color: var(--ink-faint); font-weight: 500; }
 
-  .search-wrap { position: relative; flex: 0 1 10rem; min-width: 0; }
-  .search { width: 100%; padding: 0.3rem 1.7rem 0.3rem 0.6rem; font-size: 0.8rem; }
+  .search-wrap { position: relative; flex: 0 1 9rem; min-width: 0; }
+  .search { width: 100%; padding: 0.3rem 1.6rem 0.3rem 0.6rem; font-size: 0.78rem; }
 
   .clear-btn {
     position: absolute;
     right: 0.2rem;
     top: 50%;
     transform: translateY(-50%);
-    width: 1.4rem;
-    height: 1.4rem;
+    width: 1.3rem;
+    height: 1.3rem;
     border: none;
-    border-radius: 6px;
+    border-radius: 5px;
     background: transparent;
-    color: var(--ink-soft);
-    font-size: 1rem;
+    color: var(--ink-faint);
+    font-size: 0.95rem;
     line-height: 1;
     cursor: pointer;
   }
-
   .clear-btn:hover { color: var(--ink); }
 
-  /* time control tabs: plain text */
-  .tc-tabs {
+  /* thin win / draw / loss bar */
+  .winbar {
+    display: flex;
+    height: 2px;
+    margin: 0 1.25rem 1rem;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--line);
+  }
+  .winbar span { flex-basis: 0; min-width: 0; }
+  .winbar .w { background: var(--win); }
+  .winbar .d { background: var(--draw); }
+  .winbar .l { background: var(--loss); }
+
+  /* time control filter chips */
+  .chips {
     display: flex;
     gap: 1rem;
-    padding: 0 1rem 0.5rem;
+    padding: 0 1.25rem 0.9rem;
     overflow-x: auto;
     scrollbar-width: none;
   }
+  .chips::-webkit-scrollbar { display: none; }
 
-  .tc-tabs::-webkit-scrollbar { display: none; }
-
-  .tc-tab {
+  .chip {
     flex: 0 0 auto;
-    padding: 0.15rem 0;
+    padding: 0;
     border: none;
-    border-bottom: 2px solid transparent;
-    background: none;
+    background: transparent;
     color: var(--ink-faint);
     font: inherit;
     font-size: 0.78rem;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
+    transition: color 0.15s ease;
   }
+  .chip:hover { color: var(--ink-soft); }
+  .chip.active { color: var(--ink); }
+  .chip-count { margin-left: 0.3rem; font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; opacity: 0.6; }
 
-  .tc-tab:hover { color: var(--ink-soft); }
-  .tc-tab.active { color: var(--ink); border-bottom-color: var(--tc, var(--gold)); }
-
-  .tc-count {
-    margin-left: 0.3rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.66rem;
-    opacity: 0.6;
-  }
-
-  .tc-tab.all { --tc: #f4f0e3; }
-  .tc-tab.ultrabullet { --tc: #ff6b6b; }
-  .tc-tab.bullet { --tc: #ff9f43; }
-  .tc-tab.blitz { --tc: #f2c14e; }
-  .tc-tab.rapid { --tc: #8fc06a; }
-  .tc-tab.classical { --tc: #6aa8d9; }
-  .tc-tab.correspondence, .tc-tab.daily { --tc: #a78bdb; }
-  .tc-tab.unknown { --tc: #9a9a9a; }
-
-  .groups {
+  /* ---------- Game rows ---------- */
+  .list {
     max-height: 56vh;
     overflow-y: auto;
+    border-top: 1px solid var(--line);
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   }
 
-  .group-head {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.55rem 1rem 0.25rem;
-  }
-
-  .group-name {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--gold);
-  }
-
-  .group-line { flex: 1; height: 1px; background: var(--line); }
-
-  .group-stats {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.66rem;
-    color: var(--ink-faint);
-  }
-
-  /* ---------- Game rows: simple list, no boxes ---------- */
   .row {
     display: flex;
     align-items: center;
-    gap: 0.65rem;
-    padding: 0.5rem 1rem 0.5rem 0.85rem;
-    border-left: 3px solid transparent;
+    gap: 0.75rem;
+    padding: 0.7rem 1.25rem;
     border-bottom: 1px solid var(--line);
     cursor: pointer;
     outline: none;
     transition: background 0.12s ease;
   }
-
   .row:last-child { border-bottom: none; }
-  .row:hover { background: rgba(255, 255, 255, 0.04); }
-  .row:focus-visible { background: rgba(255, 255, 255, 0.06); }
+  .row:hover { background: rgba(255, 255, 255, 0.03); }
+  .row:focus-visible { background: rgba(255, 255, 255, 0.05); }
+  .row.selected { background: rgba(255, 255, 255, 0.05); }
 
-  .row.win { border-left-color: var(--win); }
-  .row.loss { border-left-color: var(--loss); }
-  .row.draw { border-left-color: var(--draw); }
-
-  .row.selected { background: rgba(217, 179, 130, 0.1); }
-
-  .piece {
+  /* shows the colour you played */
+  .dot {
     flex: 0 0 auto;
-    width: 1.1rem;
-    text-align: center;
-    font-size: 1.05rem;
-    line-height: 1;
-    color: var(--ink-soft);
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    border: 1px solid var(--ink-faint);
   }
+  .dot.white { background: var(--ink); border-color: var(--ink); }
+  .dot.black { background: #111; }
+
+  .who { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 0.5rem; }
 
   .opponent {
-    flex: 1;
     min-width: 0;
-    font-weight: 600;
-    font-size: 0.9rem;
+    font-weight: 500;
+    font-size: 0.88rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .meta {
-    flex: 0 0 auto;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    color: var(--ink-faint);
-    white-space: nowrap;
-  }
+  .rating { flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--ink-faint); }
 
-  .meta i { font-style: normal; margin: 0 0.3rem; opacity: 0.6; }
+  .meta { flex: 0 0 auto; font-size: 0.74rem; color: var(--ink-faint); white-space: nowrap; }
 
   .result {
     flex: 0 0 auto;
     min-width: 2.4rem;
     text-align: right;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.82rem;
-    font-weight: 700;
+    font-size: 0.76rem;
+    font-weight: 600;
   }
-
   .row.win .result { color: var(--win); }
   .row.loss .result { color: var(--loss); }
   .row.draw .result { color: var(--draw); }
 
+  /* delete button only appears on hover (always visible on touch screens) */
   .delete {
     flex: 0 0 auto;
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.4rem;
+    height: 1.4rem;
     border: none;
-    border-radius: 6px;
+    border-radius: 5px;
     background: transparent;
     color: var(--ink-faint);
-    font-size: 1.05rem;
+    font-size: 1rem;
     line-height: 1;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
   }
+  .row:hover .delete, .row:focus-within .delete { opacity: 1; }
+  .delete:hover { color: var(--loss); }
+  @media (hover: none) { .delete { opacity: 1; } }
 
-  .delete:hover { background: rgba(217, 115, 106, 0.15); color: #ffb0a8; }
+  .no-match { margin: 0; padding: 1.25rem; text-align: center; font-size: 0.82rem; color: var(--ink-faint); }
 
-  .no-match { margin: 0; padding: 1rem; text-align: center; font-size: 0.83rem; color: var(--ink-faint); }
+  .more-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.85rem;
+    border: none;
+    border-top: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .more-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.03); color: var(--ink); }
+  .more-btn:disabled { opacity: 0.6; cursor: default; }
 
   /* ---------- Selected game bar ---------- */
   .selection-bar {
     position: sticky;
-    bottom: 0.6rem;
+    bottom: 0.75rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    padding: 0.55rem 0.6rem 0.55rem 1rem;
+    padding: 0.5rem 0.5rem 0.5rem 1rem;
     border-radius: 12px;
     border: 1px solid var(--line-strong);
-    border-top: 2px solid var(--gold);
-    background: var(--panel-1, #262421);
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+    background: var(--surface);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     z-index: 10;
   }
 
   .sel-players {
     min-width: 0;
-    font-size: 0.86rem;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  .sel-players em {
-    font-style: normal;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    font-weight: 500;
-    color: var(--ink-faint);
-  }
-
+  .sel-players em { font-style: normal; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 500; color: var(--ink-faint); }
   .sel-players .vs { margin: 0 0.35rem; color: var(--ink-faint); font-weight: 400; }
 
   /* ---------- Small screens ---------- */
   @media (max-width: 560px) {
-    .controls { padding: 0.8rem; }
+    .controls { padding: 1rem; }
     .control-row .btn { flex: 1 1 100%; }
     .month-nav { flex: 1 1 100%; justify-content: space-between; }
     .meta { display: none; }
-    .results-bar, .tc-tabs { padding-left: 0.8rem; padding-right: 0.8rem; }
+    .results-bar, .chips, .row, .source-tabs { padding-left: 1rem; padding-right: 1rem; }
+    .winbar { margin-left: 1rem; margin-right: 1rem; }
+    .notice { margin-left: 1rem; margin-right: 1rem; }
     .search-wrap { flex-basis: 7rem; }
-    .row { padding-right: 0.8rem; }
   }
 </style>
