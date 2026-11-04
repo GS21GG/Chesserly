@@ -61,13 +61,9 @@
 
 				<section id="analytics">
 					<h2>4. Analytics</h2>
-					<p>We use two analytics tools to understand how the app is used and to improve it:</p>
+					<p>We use one analytics tool to understand how the app is used and to improve it:</p>
 					<ul>
-						<li><strong>Umami:</strong> a privacy-focused analytics tool. It doesn't use cookies and doesn't track you across websites. It records things like pages visited, referrer, browser, operating system, device type and approximate country.</li>
-						<li><strong>Google Analytics:</strong> uses cookies and similar technologies to record how you use the app, such as pages visited, interactions, device and browser information and approximate location. Google receives your IP address as part of this.</li>
-					</ul>
-					<p class="fill">Where the law requires it, we only load Google Analytics after you give consent, and you can withdraw consent at any time.</p>
-					<p>You can also block Google Analytics using your browser settings, a content blocker, or Google's <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener">opt-out browser add-on</a>. Many browsers also let you turn on "Do Not Track" or block analytics scripts.</p>
+						<li><strong>Cloudflare:</strong> a privacy-focused analytics tool. It doesn't use cookies and doesn't track you across websites. It records things like pages visited, referrer, browser, operating system, device type and approximate country.</li>
 				</section>
 
 				<section id="use">
