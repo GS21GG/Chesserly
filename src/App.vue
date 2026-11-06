@@ -1,11 +1,13 @@
 <script setup>
   import { ref } from 'vue' 
   import AuthWidget from './assets/AuthWidget.vue'
+  import CookieBanner from './assets/CookieBanner.vue'
 </script>
 
 <template>
   <AuthWidget/>
   <RouterView/>
+  <CookieBanner/>
 </template>
 
 <style>

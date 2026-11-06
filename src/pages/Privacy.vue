@@ -1,5 +1,11 @@
 <script setup>
-	import Title from '../assets/Title.vue'
+  import Title from '../assets/Title.vue'
+  import posthog from 'posthog-js'
+
+  function changeChoice() {
+    posthog.clear_opt_in_out_capturing()
+    location.reload()
+  }
 </script>
 
 <template>
@@ -12,7 +18,7 @@
 			<header class="site-header">
 				<div class="wrap">
 					<h1>Privacy Policy</h1>
-					<p class="updated">Last updated: November 2, 2026</p>
+					<p class="updated">Last updated: November 6, 2026</p>
 				</div>
 			</header>
 
@@ -56,12 +62,16 @@
 				<section id="device">
 					<h2>3. Information stored on your device</h2>
 					<p>Chesserly stores some data in your browser's local storage, such as cached analysis results, your display preferences and the username you last entered. This data stays on your device and isn't sent to us.</p>
-					<p>If you log in, Firebase Authentication also keeps a login session in your browser's storage so you stay signed in. This is essential for the app to work. We don't use advertising cookies or analytics cookies.</p>
+					<p>If you log in, Firebase Authentication keeps a login session in your browser's storage so you stay signed in. This is essential for the app to work.</p>
+					<p>If you click Accept on the analytics banner, PostHog may store an identifier in your browser's cookies or local storage to recognise you across visits. If you click Reject, PostHog stores nothing on your device. We don't use advertising cookies.</p>
 				</section>
 
 				<section id="analytics">
 					<h2>4. Analytics</h2>
-					<p>We use Cloudflare Web Analytics to understand how the app is used and to improve it. Cloudflare is a privacy-focused analytics tool that does not use cookies, does not store personal data, and does not track you across websites. It records aggregate metrics such as pages visited, referrer, browser, operating system, device type, and approximate country.</p>
+					<p>We use PostHog to understand how the app is used and to improve it. When you first visit, we ask you to accept or reject analytics.</p>
+					<p><strong>If you accept:</strong> PostHog collects the pages you visit, clicks and other interactions, referrer, browser, operating system, device type, and approximate location from your IP address. PostHog may store an identifier on your device to recognise you across visits. We do not record your screen or your sessions.</p>
+					<p><strong>If you reject:</strong> nothing is stored on your device. We only count your visit anonymously, using a one-way hash made on PostHog's servers. It can't be used to recognise you across days.</p>
+					<p>You can change your choice at any time: <button type="button" class="link-btn" @click="changeChoice">Change my analytics choice</button></p>
 				</section>
 
 				<section id="use">
@@ -69,7 +79,7 @@
 					<ul>
 						<li>To provide the app and let you log in and access your saved games (to perform our service to you)</li>
 						<li>To keep the service secure and working (our legitimate interest)</li>
-						<li>To understand usage and improve the app using Cloudflare (our legitimate interest)</li>
+						<li>To understand usage and improve the app using PostHog (with your consent, or anonymously if you reject)</li>
 						<li>To respond to your requests and comply with the law</li>
 					</ul>
 				</section>
@@ -80,14 +90,15 @@
 						<li><strong>Lichess:</strong> we send position data to the Lichess API to get cloud evaluations and opening information. When you import games, your browser also requests public game data from Lichess. Lichess has its own privacy policy.</li>
 						<li><strong>Chess.com:</strong> when you import games, your browser requests public game data from Chess.com. Chess.com has its own privacy policy.</li>
 						<li><strong>Firebase (Google):</strong> manages account login and stores your saved games.</li>
-						<li><strong>Cloudflare:</strong> hosts the app, delivers it to you, and provides privacy-focused web analytics.</li>
+						<li><strong>Cloudflare:</strong> hosts the app and delivers it to you.</li>
+						<li><strong>PostHog:</strong> provides product analytics, as described in the Analytics section. PostHog has its own privacy policy.</li>
 						<li><strong>Google Fonts:</strong> loads the fonts used in the app, which means your browser contacts Google's servers.</li>
 					</ul>
 				</section>
 
 				<section id="transfers">
 					<h2>7. International transfers</h2>
-					<p>Our providers, including Google and Cloudflare, process data in the United States and other countries. Where required, these transfers rely on safeguards such as the EU–US Data Privacy Framework or standard contractual clauses.</p>
+					<p>Our providers, including Google, Cloudflare and PostHog, process data in the United States, the European Union and other countries, depending on the region they are hosted in. Where required, these transfers rely on safeguards such as the EU–US Data Privacy Framework or standard contractual clauses.</p>
 				</section>
 
 				<section id="sharing">
@@ -110,13 +121,13 @@
 						<li>Receive a copy of your data</li>
 						<li>Object to or restrict certain processing, and withdraw consent where we rely on it</li>
 					</ul>
-					<p>You can delete individual saved games yourself in the app. For anything else, including deleting your account, email us at <a href="mailto:chesserlyapp@gmail.com">chesserlyapp@gmail.com</a>.</p>
+					<p>You can delete individual saved games yourself in the app. You can change your analytics choice at any time using the link in section 4. For anything else, including deleting your account, email us at <a href="mailto:chesserlyapp@gmail.com">chesserlyapp@gmail.com</a>.</p>
 					<p>You also have the right to complain to your local data protection authority. In Georgia this is the Personal Data Protection Service, and in the EU or UK it is the authority in your country.</p>
 				</section>
 
 				<section id="retention">
 					<h2>11. Data retention</h2>
-					<p>We keep account data and saved games while your account is active. When you delete your account, we delete your personal data within 30 days, except where the law requires us to keep it. Analytics data is kept according to Cloudflare's data retention settings.</p>
+					<p>We keep account data and saved games while your account is active. When you delete your account, we delete your personal data within 30 days, except where the law requires us to keep it. Analytics data is kept for the period set in our PostHog settings.</p>
 				</section>
 
 				<section id="children">
@@ -166,8 +177,6 @@
 		--surface: rgba(0, 0, 0, 0.25);
 		--square-a: #5a6b3d;
 		--square-b: #3a4528;
-		--mark-bg: #4a3d12;
-		--mark-text: #ffe9a0;
 		--serif: Charter, "Iowan Old Style", Georgia, serif;
 		--sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 
@@ -283,6 +292,17 @@
 		border-radius: 2px;
 	}
 
+	.link-btn {
+		background: none;
+		border: 0;
+		padding: 0;
+		color: var(--accent);
+		font: inherit;
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
+		cursor: pointer;
+	}
+
 	.toc {
 		margin: 2rem 0 0;
 		padding: 1.25rem 1.5rem;
@@ -310,13 +330,6 @@
 	.toc li {
 		margin-bottom: 0.25rem;
 		break-inside: avoid;
-	}
-
-	.fill {
-		background: var(--mark-bg);
-		color: var(--mark-text);
-		padding: 0 0.25em;
-		border-radius: 3px;
 	}
 
 	@media (max-width: 480px) {
