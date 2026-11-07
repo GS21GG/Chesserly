@@ -1,15 +1,14 @@
 <script setup>
   import { ref } from 'vue'
-  import posthog from 'posthog-js'
 
-  const show = ref(posthog.get_explicit_consent_status() === 'pending')
+  const show = ref(window.getAnalyticsConsent() === null)
 
   function accept() {
-    posthog.opt_in_capturing()
+    window.setAnalyticsConsent(true)
     show.value = false
   }
   function reject() {
-    posthog.opt_out_capturing()
+    window.setAnalyticsConsent(false)
     show.value = false
   }
 </script>
@@ -21,7 +20,7 @@
         <strong>Help us count visits</strong>
         <p>
           We use analytics to see how many people use Chesserly. If you reject,
-          you are only counted anonymously.
+          we don't track your visits.
           <router-link to="/Privacy">Learn more</router-link>
         </p>
       </div>

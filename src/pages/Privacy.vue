@@ -1,10 +1,8 @@
 <script setup>
   import Title from '../assets/Title.vue'
-  import posthog from 'posthog-js'
 
   function changeChoice() {
-    posthog.clear_opt_in_out_capturing()
-    location.reload()
+    window.resetAnalyticsConsent()
   }
 </script>
 
@@ -18,7 +16,7 @@
 			<header class="site-header">
 				<div class="wrap">
 					<h1>Privacy Policy</h1>
-					<p class="updated">Last updated: November 6, 2026</p>
+					<p class="updated">Last updated: November 7, 2026</p>
 				</div>
 			</header>
 
@@ -61,16 +59,16 @@
 
 				<section id="device">
 					<h2>3. Information stored on your device</h2>
-					<p>Chesserly stores some data in your browser's local storage, such as cached analysis results, your display preferences and the username you last entered. This data stays on your device and isn't sent to us.</p>
+					<p>Chesserly stores some data in your browser's local storage, such as cached analysis results, your display preferences, the username you last entered and your analytics choice. This data stays on your device and isn't sent to us.</p>
 					<p>If you log in, Firebase Authentication keeps a login session in your browser's storage so you stay signed in. This is essential for the app to work.</p>
-					<p>If you click Accept on the analytics banner, PostHog may store an identifier in your browser's cookies or local storage to recognise you across visits. If you click Reject, PostHog stores nothing on your device. We don't use advertising cookies.</p>
+					<p>If you click Accept on the analytics banner, Google Analytics may store cookies in your browser, such as one named <code>_ga</code>, to recognise you across visits. If you click Reject, Google Analytics sets no cookies and nothing is sent to Google. We don't use advertising cookies.</p>
 				</section>
 
 				<section id="analytics">
 					<h2>4. Analytics</h2>
-					<p>We use PostHog to understand how the app is used and to improve it. When you first visit, we ask you to accept or reject analytics.</p>
-					<p><strong>If you accept:</strong> PostHog collects the pages you visit, clicks and other interactions, referrer, browser, operating system, device type, and approximate location from your IP address. PostHog may store an identifier on your device to recognise you across visits. We do not record your screen or your sessions.</p>
-					<p><strong>If you reject:</strong> nothing is stored on your device. We only count your visit anonymously, using a one-way hash made on PostHog's servers. It can't be used to recognise you across days.</p>
+					<p>We use Google Analytics 4 to understand how the app is used and to improve it. When you first visit, we ask you to accept or reject analytics. Until you choose, nothing is sent to Google.</p>
+					<p><strong>If you accept:</strong> Google Analytics collects the pages you visit, clicks and other interactions, referrer, browser, operating system, device type, and approximate location from your IP address. We do not record your screen or your sessions, and we do not use advertising features.</p>
+					<p><strong>If you reject:</strong> we don’t record your visits in a way that identifies you. Google Analytics still receives anonymous, cookieless signals that count visits, but it sets no cookies and doesn’t link visits to you.</p>
 					<p>You can change your choice at any time: <button type="button" class="link-btn" @click="changeChoice">Change my analytics choice</button></p>
 				</section>
 
@@ -79,7 +77,7 @@
 					<ul>
 						<li>To provide the app and let you log in and access your saved games (to perform our service to you)</li>
 						<li>To keep the service secure and working (our legitimate interest)</li>
-						<li>To understand usage and improve the app using PostHog (with your consent, or anonymously if you reject)</li>
+						<li>To understand usage and improve the app using Google Analytics (only with your consent)</li>
 						<li>To respond to your requests and comply with the law</li>
 					</ul>
 				</section>
@@ -91,14 +89,14 @@
 						<li><strong>Chess.com:</strong> when you import games, your browser requests public game data from Chess.com. Chess.com has its own privacy policy.</li>
 						<li><strong>Firebase (Google):</strong> manages account login and stores your saved games.</li>
 						<li><strong>Cloudflare:</strong> hosts the app and delivers it to you.</li>
-						<li><strong>PostHog:</strong> provides product analytics, as described in the Analytics section. PostHog has its own privacy policy.</li>
+						<li><strong>Google Analytics:</strong> measures how the app is used, but only after you accept. Google has its own privacy policy.</li>
 						<li><strong>Google Fonts:</strong> loads the fonts used in the app, which means your browser contacts Google's servers.</li>
 					</ul>
 				</section>
 
 				<section id="transfers">
 					<h2>7. International transfers</h2>
-					<p>Our providers, including Google, Cloudflare and PostHog, process data in the United States, the European Union and other countries, depending on the region they are hosted in. Where required, these transfers rely on safeguards such as the EU–US Data Privacy Framework or standard contractual clauses.</p>
+					<p>Our providers, including Google and Cloudflare, process data in the United States, the European Union and other countries, depending on the region they are hosted in. Where required, these transfers rely on safeguards such as the EU–US Data Privacy Framework or standard contractual clauses.</p>
 				</section>
 
 				<section id="sharing">
@@ -127,7 +125,7 @@
 
 				<section id="retention">
 					<h2>11. Data retention</h2>
-					<p>We keep account data and saved games while your account is active. When you delete your account, we delete your personal data within 30 days, except where the law requires us to keep it. Analytics data is kept for the period set in our PostHog settings.</p>
+					<p>We keep account data and saved games while your account is active. When you delete your account, we delete your personal data within 30 days, except where the law requires us to keep it. Analytics data is kept for the period set in our Google Analytics settings.</p>
 				</section>
 
 				<section id="children">
@@ -255,6 +253,11 @@
 	p {
 		margin: 0 0 1rem;
 		max-width: 68ch;
+	}
+
+	code {
+		font-family: ui-monospace, Menlo, Consolas, monospace;
+		font-size: 0.9em;
 	}
 
 	ul {

@@ -8,35 +8,57 @@ import Play from './pages/Play.vue'
 import Insights from './pages/Insights.vue'
 import Puzzles from './pages/Puzzles.vue'
 import Privacy from './pages/Privacy.vue'
-import posthog from 'posthog-js'
 
+/* ---------- Analytics consent (Google tag is loaded in index.html) ---------- */
 
+const CONSENT_KEY = 'chesserly-analytics-consent'
+
+// Used by CookieBanner.vue
+window.getAnalyticsConsent = () => localStorage.getItem(CONSENT_KEY) // 'granted', 'denied' or null
+
+window.setAnalyticsConsent = (granted) => {
+  const value = granted ? 'granted' : 'denied'
+  localStorage.setItem(CONSENT_KEY, value)
+  window.gtag('consent', 'update', { analytics_storage: value })
+}
+
+// Used by Privacy.vue
+window.resetAnalyticsConsent = () => {
+  localStorage.removeItem(CONSENT_KEY)
+  location.reload()
+}
+
+// Returning visitor who already said yes
+if (window.getAnalyticsConsent() === 'granted') {
+  window.gtag('consent', 'update', { analytics_storage: 'granted' })
+}
+
+function trackPage(path) {
+  window.gtag('event', 'page_view', {
+    page_path: path,
+    page_location: location.origin + path,
+    page_title: document.title,
+  })
+}
+
+/* ---------- Router and app ---------- */
 
 const routes = [
-	{ path: "/", component: Analysis },
-	{ path: "/Review", component: Review },
-	{ path: "/Insights", component: Insights },
-	{ path: "/vsComputer", component: Play }, 
-	{ path: '/Puzzles', name: 'Puzzles', component: Puzzles },
-	{ path: '/Privacy', name: 'Privacy', component: Privacy }
+  { path: "/", component: Analysis },
+  { path: "/Review", component: Review },
+  { path: "/Insights", component: Insights },
+  { path: "/vsComputer", component: Play },
+  { path: '/Puzzles', name: 'Puzzles', component: Puzzles },
+  { path: '/Privacy', name: 'Privacy', component: Privacy }
 ]
 
 const router = createRouter({
-	history: createWebHistory(),
-	routes
+  history: createWebHistory(),
+  routes
 })
 
-posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
-  api_host: import.meta.env.VITE_POSTHOG_HOST,
-  defaults: '2026-05-30',
-  cookieless_mode: 'on_reject',
-  persistence: 'memory',
-  capture_pageview: false,
-  autocapture: false,
-  disable_session_recording: true,
-  capture_heatmaps: false,
-  capture_performance: false
-})
+// Count every page the user opens (including the first one)
+router.afterEach((to) => trackPage(to.fullPath))
 
 const app = createApp(App)
 app.use(router)
