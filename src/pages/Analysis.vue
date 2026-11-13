@@ -1953,25 +1953,12 @@
   <Transition name="loading-fade">
     <div v-if="isImporting" class="analysis-loading-overlay">
       <div class="loading-content">
-        <!-- spinning rings -->
-        <div class="loading-spinner">
-          <div class="spinner-ring"></div>
-          <div class="spinner-ring"></div>
-          <div class="spinner-ring"></div>
-        </div>
         <p class="loading-title">Analyzing Game</p>
         <!-- move progress and depth -->
         <p class="loading-subtitle">
           Move {{ importProgress.current }} / {{ importProgress.total }} · Depth
           {{ targetDepth }}
         </p>
-        <!-- progress bar -->
-        <div class="loading-progress-bar">
-          <div
-            class="loading-progress-fill"
-            :style="{ width: importProgressPercent + '%' }"
-          ></div>
-        </div>
         <!-- helpful tips -->
         <div class="loading-tips">
           <p class="loading-tip">
@@ -2068,7 +2055,7 @@
               class="game-board"
               @move="handleBothMoves"
               @board-created="onBoardCreated"
-              :board-config="{ coordinates: true, animation: { enabled: true, duration: 150 }}"
+              :board-config="{ coordinates: true, animation: { enabled: true, duration: 180 }}"
             />
             <!-- Best-move arrow: own overlay, never interferes with user-drawn arrows -->
             <svg
