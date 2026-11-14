@@ -1191,6 +1191,16 @@ button,
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* When black is ahead, the chip turns black */
+.evalnum.black-better,
+.evalnum2.black-better,
+.evalnum3.black-better {
+  background-color: #000;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
 .board-acc-icon {
   position: absolute;
   width: 5.5%;

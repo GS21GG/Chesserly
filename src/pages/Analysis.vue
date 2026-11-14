@@ -1253,6 +1253,12 @@
     return " "
   }
 
+  //true when black is ahead (negative score means black is better)
+  function isBlackBetter(evalObj) {
+    if (!evalObj || evalObj.value === undefined) return false
+    return evalObj.value < 0
+  }
+
   //sets the eval bar height from the engine score
   function evalSize() {
     if (!moveData.value || !moveData.value.eval) return
@@ -2418,7 +2424,7 @@
         <div v-if="moveData" class="move-data">
           <!-- best line (click a move to play it) -->
           <div class="line pretty-scroll" :class="{ analyzing: isAnalyzing }">
-            <span class="evalnum2">{{ formatEval(moveData?.eval) }}</span>
+            <span class="evalnum2" :class="{ 'black-better': isBlackBetter(moveData?.eval) }">{{ formatEval(moveData?.eval) }}</span>
             <span
               v-for="(t, idx) in numberedLine(sanLine)"
               :key="'best-' + idx"
@@ -2433,7 +2439,7 @@
             class="secondline pretty-scroll"
             v-if="excellentSanLine.length && isEngineEnabled"
           >
-            <span class="evalnum3">{{ moveData?.excellent_eval ? formatEval(moveData.excellent_eval) : " " }}</span>
+            <span class="evalnum3" :class="{ 'black-better': isBlackBetter(moveData?.excellent_eval) }">{{ moveData?.excellent_eval ? formatEval(moveData.excellent_eval) : " " }}</span>
             <span
               v-for="(t, idx) in numberedLine(excellentSanLine)"
               :key="'exc-' + idx"
@@ -2448,7 +2454,7 @@
             class="secondline pretty-scroll"
             v-if="thirdSanLine.length && isEngineEnabled"
           >
-            <span class="evalnum3">{{ moveData?.third_eval ? formatEval(moveData.third_eval) : " " }}</span>
+           <span class="evalnum3" :class="{ 'black-better': isBlackBetter(moveData?.third_eval) }">{{ moveData?.third_eval ? formatEval(moveData.third_eval) : " " }}</span>
             <span
               v-for="(t, idx) in numberedLine(thirdSanLine)"
               :key="'third-' + idx"
