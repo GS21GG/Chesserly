@@ -824,7 +824,7 @@
   //runs when the chessboard is ready: stores its API and loads an imported game if there is one
   async function onBoardCreated(api) {
     boardAPI.value = api
-    chess.reset()
+    chess.load(moveTree.fen)
     boardAPI.value.setPosition(chess.fen())
     boardReady = true
     await tryLoadImportedGame()
@@ -1028,8 +1028,8 @@
     const uciMoves = []
     let current = node
     while (current.parent !== null) { uciMoves.unshift(current.uci); current = current.parent }
-    //rebuilds the chess game from the start
-    chess.reset()
+  //rebuilds the chess game from the start position (the FEN, if one was loaded)
+    chess.load(moveTree.fen)
     for (const uci of uciMoves) {
       try {
         chess.move(uci)
@@ -1313,6 +1313,15 @@
     return prettyMove(bestMoveSan.value) + " was the best "
   }
 
+  //tries a move and returns null instead of crashing when it is illegal
+  function safeMove(game, move) {
+    try {
+      return game.move(move, { sloppy: true })
+    } catch (e) {
+      return null
+    }
+  }
+
   //turns the engine's best line into SAN moves for display
   function uciLine() {
     const fenParts = chess.fen().split(' ')
@@ -1326,7 +1335,7 @@
     for (let i = 0; i < 30; i++) {
       const greedyMoveBefore = moveData.value.best_line[lineNum]
       if (!greedyMoveBefore) break
-      const greedyMove = greedyChess.move(greedyMoveBefore, { sloppy: true })
+      const greedyMove = safeMove(greedyChess, greedyMoveBefore)
       if (!greedyMove) break
       sanLine.value.push(greedyMove.san)
       if (lineNum === 0) bestArrowSquares.value = { from: greedyMove.from, to: greedyMove.to }
@@ -1339,7 +1348,7 @@
     if (!moveData.value?.best_move) return
     const baseFen = currentNode.value.parent ? currentNode.value.parent.fen : moveTree.fen
     bestChess.load(baseFen)
-    const bestMove = bestChess.move(moveData.value.best_move, { sloppy: true })
+    const bestMove = safeMove(bestChess, moveData.value.best_move)
     if (!bestMove) return
     bestMoveSan.value = bestMove.san
   }
@@ -1353,7 +1362,7 @@
     for (let i = 0; i < 30; i++) {
       const m = moveData.value.excellent_line[secondLineNum]
       if (!m) break
-      const mm = excellentChess.move(m, { sloppy: true })
+      const mm = safeMove(excellentChess, m)
       if (!mm) break
       excellentSanLine.value.push(mm.san)
       secondLineNum++
@@ -1369,7 +1378,7 @@
     for (let i = 0; i < 30; i++) {
       const m = moveData.value.third_line[thirdLineNum]
       if (!m) break
-      const mm = thirdChess.move(m, { sloppy: true })
+      const mm = safeMove(thirdChess, m)
       if (!mm) break
       thirdSanLine.value.push(mm.san)
       thirdLineNum++
