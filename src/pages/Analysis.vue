@@ -1221,7 +1221,8 @@
       beforeFen, afterFen, moveTree.fen,
       multiPVToUse,
       chess.isCheckmate(),
-      chess.isStalemate()
+      chess.isStalemate(),
+      node.parent?.analysisData ?? null
     )
 
     //engine finished normally: show the final result and remember the target depth was reached
@@ -2064,7 +2065,7 @@
               class="game-board"
               @move="handleBothMoves"
               @board-created="onBoardCreated"
-              :board-config="{ coordinates: true, animation: { enabled: true, duration: 180 }}"
+              :board-config="{ coordinates: true, animation: { enabled: true, duration: 200 }}"
             />
             <!-- Best-move arrow: own overlay, never interferes with user-drawn arrows -->
             <svg

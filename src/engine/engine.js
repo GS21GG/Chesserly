@@ -464,10 +464,7 @@ function checkBrilliant({ isBest, isBook, isSac, eval_before, eval_after, moverI
 }
 
 // ---- Main: Evaluate One Move --------------------------------------------
-// ---- Main: Evaluate One Move --------------------------------------------
-export async function getEvaluation(move, movesList, depth, onUpdate = null, beforeFen = null, afterFen = null, rootFen = null, multiPV = 1, deliversMate = false, deliversStalemate = false) {
-    // Take ownership: cancel whatever ran before and get a fresh id.
-    // If another call comes in later, our id goes stale and we quietly return null.
+export async function getEvaluation(move, movesList, depth, onUpdate = null, beforeFen = null, afterFen = null, rootFen = null, multiPV = 1, deliversMate = false, deliversStalemate = false, parentData = null) {
     const stopping = cancelAnalysis()
     const myId = analysisId
     await stopping
@@ -478,14 +475,35 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
     const rootSideIsWhite = hasCustomRoot ? (rootFen.split(' ')[1] !== 'b') : true
     const moverIsWhite = rootSideIsWhite ? (afterMoves.length % 2 === 1) : (afterMoves.length % 2 === 0)
 
-    // The "before" position is only used for comparison, so it is capped at depth 12.
     const BEFORE_DEPTH = 12
     const beforeDepth = Math.min(depth, BEFORE_DEPTH)
 
+    // ---- "Before" info: reuse the parent's analysis, search only if we must ----
+    // beforeInfo = { eval, best_move, second_eval }
+    let beforeInfo = null
+    if (move) {
+        const canReuse = !!parentData?.eval && !!parentData.best_line?.[0] && parentData.depth >= beforeDepth
+        if (canReuse) {
+            beforeInfo = {
+                eval: parentData.eval,
+                best_move: parentData.best_line[0],
+                second_eval: parentData.excellent_eval ?? null,
+            }
+        } else {
+            const before = await analyzePosition(movesList, beforeDepth, null, 1, rootFen, myId)
+            if (analysisId !== myId || !before) return null
+            beforeInfo = {
+                eval: before.evaluation,
+                best_move: before.topMoves?.[0]?.Move ?? "",
+                second_eval: null,
+            }
+        }
+    }
+    const eval_before = beforeInfo?.eval ?? null
+    const best_move = beforeInfo?.best_move ?? ""
+
     // The game ended with this move (checkmate or stalemate): the engine gives no score.
     if (deliversMate || deliversStalemate) {
-        const before = await analyzePosition(movesList, beforeDepth, null, 1, rootFen, myId)
-        if (analysisId !== myId) return null
         let accuracy = "none"
         let eval_after = null
         if (move) {
@@ -493,14 +511,13 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
                 accuracy = "best"
             } else {
                 eval_after = { type: "cp", value: 0, Centipawn: 0, Mate: null }
-                const mine = before?.evaluation ? toMoverCp(before.evaluation, moverIsWhite) : 0
-                const lost = Math.max(0, winChance(before?.evaluation, moverIsWhite) - 0.5)
-                // Clearly losing (down 3 pawns or more) and saved with stalemate = great
+                const mine = eval_before ? toMoverCp(eval_before, moverIsWhite) : 0
+                const lost = Math.max(0, winChance(eval_before, moverIsWhite) - 0.5)
                 accuracy = mine <= -300 ? "great" : classifyByPoints(lost)
             }
         }
         const result = {
-            depth, move_played: move, best_move: before?.topMoves?.[0]?.Move ?? "", eval: eval_after,
+            depth, move_played: move, best_move, eval: eval_after,
             excellent_eval: null, third_eval: null, move_accuracy: accuracy, is_sacrifice: false,
             best_line: [], excellent_line: [], third_line: [], moves_list: afterMoves,
         }
@@ -509,12 +526,6 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
     }
 
     const isBook = isBookMove(movesList, move, hasCustomRoot)
-
-    // "Before" position: searched fresh at beforeDepth (MultiPV 1).
-    const before = await analyzePosition(movesList, beforeDepth, null, 1, rootFen, myId)
-    if (analysisId !== myId || !before) return null
-    const eval_before = before.evaluation
-    const best_move = before.topMoves?.[0]?.Move ?? ""
     const isBest = !!move && best_move === move
 
     // Extra checks only when the best move was played
@@ -526,12 +537,18 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
         const isSimpleRecapture = !!opponentLastMove && opponentLastMove.slice(2, 4) === move.slice(2, 4)
         const isFreeCapture = isHangingCapture(beforeFen, move)
         if (!isSimpleRecapture && !isFreeCapture) {
-            // Small extra search to see the 2nd best move (needs MultiPV 2).
-            const top2Result = await analyzePosition(movesList, 10, null, 2, rootFen, myId)
-            if (analysisId !== myId || !top2Result) return null
-            const t = top2Result.topMoves || []
-            if (t[0]?.score && t[1]?.score) {
-                const gap = winChance(t[0].score, moverIsWhite) - winChance(t[1].score, moverIsWhite)
+            let bestScore = eval_before
+            let secondScore = beforeInfo.second_eval
+            // Parent had no 2nd line: do the small MultiPV 2 search (as before)
+            if (!secondScore) {
+                const top2Result = await analyzePosition(movesList, 10, null, 2, rootFen, myId)
+                if (analysisId !== myId || !top2Result) return null
+                const t = top2Result.topMoves || []
+                bestScore = t[0]?.score ?? null
+                secondScore = t[1]?.score ?? null
+            }
+            if (bestScore && secondScore) {
+                const gap = winChance(bestScore, moverIsWhite) - winChance(secondScore, moverIsWhite)
                 isGreat = gap >= GREAT_MIN_GAP
             }
         }
@@ -551,7 +568,10 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
             }
         }
         return {
-            depth: currentDepth, move_played: move, best_move, eval: eval_after,
+            depth: currentDepth, move_played: move,
+            // no move played (start position): the best move comes from this same search
+            best_move: move ? best_move : (topMovesAfter[0]?.Move ?? ""),
+            eval: eval_after,
             excellent_eval: topMovesAfter[1]?.score ?? null, third_eval: topMovesAfter[2]?.score ?? null,
             move_accuracy: accuracy, is_sacrifice: isBest ? is_sacrifice : false,
             best_line: topMovesAfter[0]?.line ?? [],
