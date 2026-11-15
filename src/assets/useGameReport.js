@@ -126,7 +126,7 @@ export function useGameReport({ moveTree, treeVersion, jumpToNode, isReportMaxim
       const persp = ply % 2 === 1 ? 1 : -1
       if (before !== null && after !== null && node.accuracy) {
         const delta = (after - before) * persp
-        const isError = ['blunder', 'mistake', 'inaccuracy'].includes(node.accuracy)
+        const isError = ['blunder', 'mistake', 'miss', 'inaccuracy'].includes(node.accuracy)
         const isStar = ['brilliant', 'great'].includes(node.accuracy)
         if (isError || isStar) {
           moments.push({

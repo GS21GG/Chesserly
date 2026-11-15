@@ -3,6 +3,9 @@ let analysisId = 0
 let currentResolve = null
 let currentMultiPV = 1
 
+// Opponent's last move was this bad, so a weak reply counts as a miss
+const MISS_AFTER = ['mistake', 'blunder']
+
 // ---- Engine state -----------------------------------------------------
 let searching = false          // true between "go" and "bestmove"
 let activeHandler = null       // receives messages for the current search only
@@ -562,9 +565,13 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
             } else if (isBest) {
                 if (checkBrilliant({ isBest, isBook, isSac: is_sacrifice, eval_before, eval_after, moverIsWhite, movesList, move })) accuracy = "brilliant"
                 else accuracy = isGreat ? "great" : "best"
-            } else if (eval_after) {
+            }   else if (eval_after) {
                 const lost = Math.max(0, winChance(eval_before, moverIsWhite) - winChance(eval_after, moverIsWhite))
                 accuracy = classifyByPoints(lost)
+                if ((accuracy === 'inaccuracy' || accuracy === 'mistake' || accuracy === 'blunder') &&
+                    MISS_AFTER.includes(parentData?.move_accuracy)) {
+                    accuracy = 'miss'
+                }
             }
         }
         return {

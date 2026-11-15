@@ -3,15 +3,15 @@
 
 export const accuracyColors = {
   brilliant: '#03aea7', great: '#4c8cb5', best: '#6ad13f', excellent: '#90bc36',
-  good: '#8eae83', book: '#ad8760', inaccuracy: '#f2bc43', mistake: '#f38800', blunder: '#FF0000'
+  good: '#8eae83', book: '#ad8760', inaccuracy: '#f2bc43', miss: '#ff7769', mistake: '#f38800', blunder: '#FF0000'
 }
 
 export const accuracyWeights = {
   brilliant: 100, great: 100, best: 100, book: 100,
-  excellent: 90, good: 80, inaccuracy: 20, mistake: 10, blunder: 0
+  excellent: 90, good: 80, inaccuracy: 20, mistake: 10, miss: 5, blunder: 0
 }
 
-export const classificationOrder = ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'blunder']
+export const classificationOrder = ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'miss', 'blunder']
 
 export const classificationMeta = {
   brilliant: { label: 'Brilliant', color: '#03aea7' },
@@ -22,6 +22,7 @@ export const classificationMeta = {
   book: { label: 'Book', color: '#ad8760' },
   inaccuracy: { label: 'Inaccuracy', color: '#f2bc43' },
   mistake: { label: 'Mistake', color: '#f38800' },
+  miss: { label: 'Miss', color: '#ff7769' },
   blunder: { label: 'Blunder', color: '#FF0000' }
 }
 
@@ -73,6 +74,7 @@ const ICON_BODY = {
   // "?" scaled to 0.85, "!" sized to the same height (y 15.5 to 48.5)
   inaccuracy: `<g transform="translate(-3.2 6.3) scale(.85)">${ICON_Q}</g><rect x="44" y="15.5" width="6" height="22" rx="3" fill="#fff"/><circle cx="47" cy="45" r="3.5" fill="#fff"/>`,
   mistake: ICON_Q,
+  miss: `<path d="M22 22L42 42M42 22L22 42" ${ICON_STROKE}/>`,
   blunder: `<g transform="translate(1.7 11.4) scale(.68)">${ICON_Q}</g><g transform="translate(18.7 11.4) scale(.68)">${ICON_Q}</g>`
 }
 
