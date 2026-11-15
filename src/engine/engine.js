@@ -3,65 +3,130 @@ let analysisId = 0
 let currentResolve = null
 let currentMultiPV = 1
 
-// ---- Storage Keys -----------------------------------------------------
-const LOCAL_EVAL_STORAGE_KEY = 'chesserly_localEvalCache'
-const MAX_CACHE_ENTRIES = 1500
+// ---- Engine state -----------------------------------------------------
+let searching = false          // true between "go" and "bestmove"
+let activeHandler = null       // receives messages for the current search only
+let idleWaiters = []
+let stopPromise = null
+let restartPromise = null
+const STOP_TIMEOUT_MS = 1500
 
-// ---- Cache Dirty Flags ------------------------------------------------
-let localEvalDirty = false
-let persistTimer = null
-const PERSIST_DEBOUNCE_MS = 1000
-
-function loadCacheFromStorage(storageKey) {
-    try {
-        const raw = localStorage.getItem(storageKey)
-        if (!raw) return new Map()
-        const entries = JSON.parse(raw)
-        if (!Array.isArray(entries)) return new Map()
-        return new Map(entries)
-    } catch (error) {
-        console.warn(`Failed to load ${storageKey} from localStorage:`, error)
-        return new Map()
-    }
-}
-
-function saveCacheToStorage(storageKey, cache) {
-    try {
-        if (cache.size > MAX_CACHE_ENTRIES) {
-            const excess = cache.size - MAX_CACHE_ENTRIES
-            const keysToDelete = Array.from(cache.keys()).slice(0, excess)
-            for (const key of keysToDelete) cache.delete(key)
-        }
-        localStorage.setItem(storageKey, JSON.stringify(Array.from(cache.entries())))
-    } catch (error) {
-        console.warn(`Failed to save ${storageKey} to localStorage:`, error)
-    }
-}
-
-function schedulePersist() {
-    if (persistTimer) return
-    persistTimer = setTimeout(() => {
-        persistTimer = null
-        if (localEvalDirty) {
-            saveCacheToStorage(LOCAL_EVAL_STORAGE_KEY, localEvalCache)
-            localEvalDirty = false
-        }
-    }, PERSIST_DEBOUNCE_MS)
-}
-const localEvalCache = loadCacheFromStorage(LOCAL_EVAL_STORAGE_KEY)
-
-function ensureScoreFields(score) {
-    if (!score) return score
-    if (!('Centipawn' in score)) {
-        score.Centipawn = score.type === "cp" ? score.value : null
-    }
-    if (!('Mate' in score)) {
-        score.Mate = score.type === "mate" ? score.value : null
-    }
-    return score
-}
+// Old eval cache is gone; clean up what it left in localStorage
+try { localStorage.removeItem('chesserly_localEvalCache') } catch (e) {}
 
 const STARTPOS_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+
+// ---- Worker lifecycle ---------------------------------------------------
+function notifyIdle() {
+    const waiters = idleWaiters
+    idleWaiters = []
+    for (const fn of waiters) fn()
+}
+
+function handleEngineMessage(e) {
+    const msg = typeof e.data === 'string' ? e.data : ''
+    if (!msg) return
+    if (msg.startsWith('bestmove')) {
+        // Only ever one outstanding "go", so this bestmove always belongs to it
+        const handler = activeHandler
+        activeHandler = null
+        searching = false
+        if (handler) handler(msg)
+        notifyIdle()
+        return
+    }
+    if (activeHandler) activeHandler(msg)
+}
+
+function createWorker() {
+    return new Promise((resolve) => {
+        if (sf) {
+            try { sf.terminate() } catch (e) {}
+        }
+        searching = false
+        activeHandler = null
+        currentMultiPV = 1
+
+        const worker = new Worker('/stockfish/stockfish-17.1-lite-single.js')
+        sf = worker
+        worker.addEventListener('message', handleEngineMessage)
+
+        const onMessage = (e) => {
+            const msg = e.data
+            if (msg === 'uciok') {
+                worker.postMessage('setoption name MultiPV value 1')
+                worker.postMessage('setoption name Hash value 8')
+                worker.postMessage('ucinewgame')
+                worker.postMessage('isready')
+            }
+            if (msg === 'readyok') {
+                worker.removeEventListener('message', onMessage)
+                resolve()
+            }
+        }
+        worker.addEventListener('message', onMessage)
+        worker.postMessage('uci')
+    })
+}
+
+function restartEngine() {
+    if (restartPromise) return restartPromise
+    restartPromise = (async () => {
+        if (currentResolve) {
+            const r = currentResolve
+            currentResolve = null
+            r(null)
+        }
+        await createWorker()
+        notifyIdle()
+    })().finally(() => { restartPromise = null })
+    return restartPromise
+}
+
+// Resolves once no search is running. If Stockfish ignores "stop", restart it.
+function stopSearch() {
+    if (restartPromise) return restartPromise
+    if (!searching) return Promise.resolve()
+    if (stopPromise) return stopPromise
+
+    stopPromise = new Promise((resolve) => {
+        let done = false
+        let timer = null
+        const finish = () => {
+            if (done) return
+            done = true
+            clearTimeout(timer)
+            resolve()
+        }
+        idleWaiters.push(finish)
+        sf.postMessage('stop')
+        timer = setTimeout(async () => {
+            if (done) return
+            console.warn('Engine did not stop in time, restarting it')
+            await restartEngine()
+            finish()
+        }, STOP_TIMEOUT_MS)
+    }).finally(() => { stopPromise = null })
+
+    return stopPromise
+}
+
+export async function startEngine() {
+    const bookPromise = loadOpeningBook()
+    await createWorker()
+    await bookPromise
+}
+
+export function cancelAnalysis() {
+    analysisId++
+    activeHandler = null            // no more updates from the old search
+    if (currentResolve) {
+        const r = currentResolve
+        currentResolve = null
+        r(null)
+    }
+    return stopSearch()
+}
 
 // ---- Local Opening Book -----------------------------------------------
 let openingBookMap = new Map()
@@ -101,63 +166,6 @@ export async function loadOpeningBook(url = '/book/openings.json') {
 
 export function isOpeningBookLoaded() {
     return openingBookLoaded && openingBookMap.size > 0
-}
-
-export async function startEngine() {
-    const bookPromise = loadOpeningBook()
-    await new Promise((resolve) => {
-        sf = new Worker('/stockfish/stockfish-17.1-lite-single.js')
-        const onMessage = (e) => {
-            const msg = e.data
-            if (msg === "uciok") {
-                sf.postMessage("setoption name MultiPV value 1")
-                currentMultiPV = 1
-                sf.postMessage("setoption name Hash value 64")
-                sf.postMessage("ucinewgame")
-                sf.postMessage("isready")
-            }
-            if (msg === "readyok") {
-                sf.removeEventListener("message", onMessage)
-                resolve()
-            }
-        }
-        sf.addEventListener("message", onMessage)
-        sf.postMessage("uci")
-    })
-    await bookPromise
-
-    sf.postMessage("position startpos")
-    sf.postMessage("go depth 1")
-}
-
-export function cancelAnalysis() {
-    analysisId++
-    if (currentResolve) {
-        currentResolve(null)
-        currentResolve = null
-    }
-    sf.onmessage = null
-    return new Promise((resolve) => {
-        let resolved = false
-        const absorber = (e) => {
-            if (typeof e.data === 'string' && e.data.startsWith('bestmove')) {
-                if (!resolved) {
-                    resolved = true
-                    sf.removeEventListener('message', absorber)
-                    setTimeout(resolve, 10)
-                }
-            }
-        }
-        sf.addEventListener('message', absorber)
-        sf.postMessage('stop')
-        setTimeout(() => {
-            if (!resolved) {
-                resolved = true
-                sf.removeEventListener('message', absorber)
-                resolve()
-            }
-        }, 150)
-    })
 }
 
 // ---- Book Move Lookup (Local) -----------------------------------------
@@ -312,37 +320,29 @@ function isHangingCapture(beforeFen, move) {
 }
 
 // ---- Engine Search ------------------------------------------------------
-function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = null) {
-    const myId = analysisId
+// Returns null if this analysis was cancelled / superseded (myId is stale).
+async function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = null, myId = analysisId) {
+    // Make sure the previous search is fully finished before sending "go"
+    await stopSearch()
+    if (analysisId !== myId) return null
+
     const effectiveRoot = (rootFen && rootFen !== STARTPOS_FEN) ? rootFen : null
-    const cacheKey = `${effectiveRoot ?? 'startpos'}|${moves.join(",")}|${depth}|${multiPV}`
-    if (localEvalCache.has(cacheKey)) {
-        const cachedResult = localEvalCache.get(cacheKey)
-        if (cachedResult) {
-            if (cachedResult.evaluation) ensureScoreFields(cachedResult.evaluation)
-            if (cachedResult.topMoves) {
-                for (const m of cachedResult.topMoves) {
-                    if (m?.score) ensureScoreFields(m.score)
-                }
-            }
-            if (onUpdate) {
-                onUpdate({
-                    evaluation: cachedResult.evaluation,
-                    topMoves: cachedResult.topMoves,
-                    currentDepth: cachedResult.currentDepth || depth
-                })
-            }
-        }
-        return Promise.resolve(cachedResult)
-    }
+
     return new Promise((resolve) => {
         currentResolve = resolve
         let topMoves = [], evaluation = null
         const rootSideIsWhite = effectiveRoot ? effectiveRoot.split(' ')[1] !== 'b' : true
         const isBlackToMove = rootSideIsWhite ? (moves.length % 2 === 1) : (moves.length % 2 === 0)
-        sf.onmessage = (e) => {
+
+        activeHandler = (msg) => {
             if (analysisId !== myId) return
-            const msg = e.data
+
+            if (msg.startsWith("bestmove")) {
+                currentResolve = null
+                resolve({ evaluation, topMoves, currentDepth: depth })
+                return
+            }
+
             if (msg.includes("score")) {
                 const mp = msg.match(/multipv (\d+)/)
                 const depthMatch = msg.match(/\bdepth (\d+)\b/)
@@ -384,16 +384,8 @@ function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = n
                     }
                 }
             }
-            if (msg.startsWith("bestmove")) {
-                sf.onmessage = null
-                currentResolve = null
-                const result = { evaluation, topMoves, best11: null, currentDepth: depth }
-                localEvalCache.set(cacheKey, result)
-                localEvalDirty = true
-                schedulePersist()
-                resolve(result)
-            }
         }
+
         if (currentMultiPV !== multiPV) {
             sf.postMessage(`setoption name MultiPV value ${multiPV}`)
             currentMultiPV = multiPV
@@ -401,6 +393,7 @@ function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = n
         const posCommand = effectiveRoot ?
             (moves.length > 0 ? `position fen ${effectiveRoot} moves ${moves.join(" ")}` : `position fen ${effectiveRoot}`) :
             (moves.length > 0 ? `position startpos moves ${moves.join(" ")}` : "position startpos")
+        searching = true
         sf.postMessage(posCommand)
         sf.postMessage(`go depth ${depth}`)
     })
@@ -412,7 +405,7 @@ function analyzePosition(moves, depth, onUpdate = null, multiPV = 1, rootFen = n
 const WIN_CURVE_K = 0.00368208 // Lichess win-chance curve (chess.com's is not public)
 
 // Points lost (0 to 1) limits. Change these to tune.
-const LIMIT_BEST = 0.005
+// "best" is not here: it is only given when the move is the engine's top choice.
 const LIMIT_EXCELLENT = 0.02
 const LIMIT_GOOD = 0.05
 const LIMIT_INACCURACY = 0.10
@@ -446,8 +439,8 @@ function winChance(score, moverIsWhite) {
     return 1 / (1 + Math.exp(-WIN_CURVE_K * cp))
 }
 
+// Used only for moves that are NOT the engine's top choice.
 function classifyByPoints(lost) {
-    if (lost <= LIMIT_BEST) return "best"
     if (lost <= LIMIT_EXCELLENT) return "excellent"
     if (lost <= LIMIT_GOOD) return "good"
     if (lost <= LIMIT_INACCURACY) return "inaccuracy"
@@ -471,33 +464,60 @@ function checkBrilliant({ isBest, isBook, isSac, eval_before, eval_after, moverI
 }
 
 // ---- Main: Evaluate One Move --------------------------------------------
-export async function getEvaluation(move, movesList, depth, onUpdate = null, beforeFen = null, afterFen = null, rootFen = null, multiPV = 1, deliversMate = false, deliversStalemate = false) {
+export async function getEvaluation(move, movesList, depth, onUpdate = null, beforeFen = null, afterFen = null, rootFen = null, multiPV = 1, deliversMate = false, deliversStalemate = false, parentData = null) {
+    const stopping = cancelAnalysis()
     const myId = analysisId
+    await stopping
+    if (analysisId !== myId) return null
+
     const hasCustomRoot = !!(rootFen && rootFen !== STARTPOS_FEN)
     const afterMoves = move ? [...movesList, move] : movesList
     const rootSideIsWhite = hasCustomRoot ? (rootFen.split(' ')[1] !== 'b') : true
     const moverIsWhite = rootSideIsWhite ? (afterMoves.length % 2 === 1) : (afterMoves.length % 2 === 0)
 
+    const BEFORE_DEPTH = 12
+    const beforeDepth = Math.min(depth, BEFORE_DEPTH)
+
+    // ---- "Before" info: reuse the parent's analysis, search only if we must ----
+    // beforeInfo = { eval, best_move, second_eval }
+    let beforeInfo = null
+    if (move) {
+        const canReuse = !!parentData?.eval && !!parentData.best_line?.[0] && parentData.depth >= beforeDepth
+        if (canReuse) {
+            beforeInfo = {
+                eval: parentData.eval,
+                best_move: parentData.best_line[0],
+                second_eval: parentData.excellent_eval ?? null,
+            }
+        } else {
+            const before = await analyzePosition(movesList, beforeDepth, null, 1, rootFen, myId)
+            if (analysisId !== myId || !before) return null
+            beforeInfo = {
+                eval: before.evaluation,
+                best_move: before.topMoves?.[0]?.Move ?? "",
+                second_eval: null,
+            }
+        }
+    }
+    const eval_before = beforeInfo?.eval ?? null
+    const best_move = beforeInfo?.best_move ?? ""
+
     // The game ended with this move (checkmate or stalemate): the engine gives no score.
     if (deliversMate || deliversStalemate) {
-        // "Before" uses the same depth and MultiPV 1, so it is usually a cache hit.
-        const before = await analyzePosition(movesList, depth, null, 1, rootFen)
-        if (analysisId !== myId) return null
         let accuracy = "none"
         let eval_after = null
         if (move) {
             if (deliversMate) {
                 accuracy = "best"
             } else {
-                eval_after = ensureScoreFields({ type: "cp", value: 0 })
-                const mine = before?.evaluation ? toMoverCp(before.evaluation, moverIsWhite) : 0
-                const lost = Math.max(0, winChance(before?.evaluation, moverIsWhite) - 0.5)
-                // Clearly losing (down 3 pawns or more) and saved with stalemate = great
+                eval_after = { type: "cp", value: 0, Centipawn: 0, Mate: null }
+                const mine = eval_before ? toMoverCp(eval_before, moverIsWhite) : 0
+                const lost = Math.max(0, winChance(eval_before, moverIsWhite) - 0.5)
                 accuracy = mine <= -300 ? "great" : classifyByPoints(lost)
             }
         }
         const result = {
-            depth, move_played: move, best_move: before?.topMoves?.[0]?.Move ?? "", eval: eval_after,
+            depth, move_played: move, best_move, eval: eval_after,
             excellent_eval: null, third_eval: null, move_accuracy: accuracy, is_sacrifice: false,
             best_line: [], excellent_line: [], third_line: [], moves_list: afterMoves,
         }
@@ -506,13 +526,6 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
     }
 
     const isBook = isBookMove(movesList, move, hasCustomRoot)
-
-    // "Before" position: same depth, MultiPV 1.
-    // It is the same search as the previous move's "after" when MultiPV is 1, so it is cached.
-    const before = await analyzePosition(movesList, depth, null, 1, rootFen)
-    if (analysisId !== myId || !before) return null
-    const eval_before = before.evaluation
-    const best_move = before.topMoves?.[0]?.Move ?? ""
     const isBest = !!move && best_move === move
 
     // Extra checks only when the best move was played
@@ -524,13 +537,18 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
         const isSimpleRecapture = !!opponentLastMove && opponentLastMove.slice(2, 4) === move.slice(2, 4)
         const isFreeCapture = isHangingCapture(beforeFen, move)
         if (!isSimpleRecapture && !isFreeCapture) {
-            // Small extra search to see the 2nd best move (needs MultiPV 2).
-            // We compare both lines from this same search, so the depth matches.
-            const top2Result = await analyzePosition(movesList, 10, null, 2, rootFen)
-            if (analysisId !== myId) return null
-            const t = top2Result?.topMoves || []
-            if (t[0]?.score && t[1]?.score) {
-                const gap = winChance(t[0].score, moverIsWhite) - winChance(t[1].score, moverIsWhite)
+            let bestScore = eval_before
+            let secondScore = beforeInfo.second_eval
+            // Parent had no 2nd line: do the small MultiPV 2 search (as before)
+            if (!secondScore) {
+                const top2Result = await analyzePosition(movesList, 10, null, 2, rootFen, myId)
+                if (analysisId !== myId || !top2Result) return null
+                const t = top2Result.topMoves || []
+                bestScore = t[0]?.score ?? null
+                secondScore = t[1]?.score ?? null
+            }
+            if (bestScore && secondScore) {
+                const gap = winChance(bestScore, moverIsWhite) - winChance(secondScore, moverIsWhite)
                 isGreat = gap >= GREAT_MIN_GAP
             }
         }
@@ -550,7 +568,10 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
             }
         }
         return {
-            depth: currentDepth, move_played: move, best_move, eval: eval_after,
+            depth: currentDepth, move_played: move,
+            // no move played (start position): the best move comes from this same search
+            best_move: move ? best_move : (topMovesAfter[0]?.Move ?? ""),
+            eval: eval_after,
             excellent_eval: topMovesAfter[1]?.score ?? null, third_eval: topMovesAfter[2]?.score ?? null,
             move_accuracy: accuracy, is_sacrifice: isBest ? is_sacrifice : false,
             best_line: topMovesAfter[0]?.line ?? [],
@@ -563,8 +584,8 @@ export async function getEvaluation(move, movesList, depth, onUpdate = null, bef
     const afterFinal = await analyzePosition(
         afterMoves, depth,
         onUpdate ? (data) => onUpdate(buildResult(data.evaluation, data.topMoves, data.currentDepth)) : null,
-        multiPV, rootFen
+        multiPV, rootFen, myId
     )
-    if (!afterFinal) return null
+    if (analysisId !== myId || !afterFinal) return null
     return buildResult(afterFinal.evaluation, afterFinal.topMoves, depth)
 }

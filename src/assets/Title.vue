@@ -34,13 +34,37 @@
     if (route.path === '/Insights') return 'insight'
     if (route.path === '/vsComputer') return 'computer'
     if (route.path === '/Puzzles') return 'puzzles'
+    if (route.path === '/Privacy') return null
     return 'analyze'
   })
 </script>
 
 <template>
   <div class="title-container" :class="{ 'menu-open': menuOpen }">
-    <h1 class="title">♔ CHESSERLY</h1>
+    <h1 class="title">
+      <svg class="logo" viewBox="228 68 796 1072" aria-hidden="true">
+        <defs>
+          <linearGradient id="lg-gold" gradientUnits="userSpaceOnUse" x1="0" y1="78" x2="0" y2="1130">
+            <stop offset="0" stop-color="#FFE15A"/>
+            <stop offset="1" stop-color="#F5B400"/>
+          </linearGradient>
+        </defs>
+        <g fill="url(#lg-gold)">
+          <!-- cross -->
+          <rect x="585" y="78" width="83" height="200" rx="10"/>
+          <rect x="512" y="150" width="229" height="65" rx="10"/>
+          <!-- ring -->
+          <path fill-rule="evenodd" d="M506,381 A120,120 0 1 0 746,381 A120,120 0 1 0 506,381 Z M551,381 A75,75 0 1 0 701,381 A75,75 0 1 0 551,381 Z"/>
+          <!-- crown -->
+          <path fill-rule="evenodd" d="M419,953 C428,940 434,925 436,905 C438,880 420,855 380,822 C320,775 238,720 238,600 C238,470 380,370 506,395 Q626,540 746,395 C872,370 1014,470 1014,600 C1014,720 932,775 872,822 C832,855 814,880 816,905 C818,925 824,940 833,953 Z M590,513 C540,480 480,462 430,470 C360,482 326,535 326,595 C326,680 400,740 440,775 C490,815 520,860 510,908 C570,850 580,700 590,513 Z M662,513 C712,480 772,462 822,470 C892,482 926,535 926,595 C926,680 852,740 812,775 C762,815 732,860 742,908 C682,850 672,700 662,513 Z"/>
+          <!-- base -->
+          <rect x="366" y="973" width="521" height="60" rx="30"/>
+          <rect x="320" y="1052" width="612" height="78" rx="39"/>
+        </g>
+      </svg>
+      <span class="title-text">CHESSERLY</span>
+    </h1>
+
     <button
       class="menu-toggle"
       :aria-expanded="menuOpen"
@@ -52,62 +76,65 @@
     <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
     <nav class="title-nav">
       <button class="btn" :style="{ background: `linear-gradient(${bgColor('import')})` }" @click="importClick()">
-  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-    <polyline points="7 10 12 15 17 10"/>
-    <line x1="12" x2="12" y1="15" y2="3"/>
-  </svg>
-  GameImport
-  </button>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" x2="12" y1="15" y2="3"/>
+        </svg>
+        GameImport
+      </button>
 
-  <button class="btn" :style="{ background: `linear-gradient(${bgColor('analyze')})` }" @click="analyzeClick()">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="11" cy="11" r="8"/>
-      <path d="m21 21-4.3-4.3"/>
-    </svg>
-    Analyse
-  </button>
+      <button class="btn" :style="{ background: `linear-gradient(${bgColor('analyze')})` }" @click="analyzeClick()">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.3-4.3"/>
+        </svg>
+        Analyse
+      </button>
 
-  <button class="btn" :style="{ background: `linear-gradient(${bgColor('insight')})` }" @click="insightsClick()">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 3v16a2 2 0 0 0 2 2h16"/>
-      <path d="M18 17V9"/>
-      <path d="M13 17V5"/>
-      <path d="M8 17v-3"/>
-    </svg>
-    Insights
-  </button>
+      <button class="btn" :style="{ background: `linear-gradient(${bgColor('insight')})` }" @click="insightsClick()">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3v16a2 2 0 0 0 2 2h16"/>
+          <path d="M18 17V9"/>
+          <path d="M13 17V5"/>
+          <path d="M8 17v-3"/>
+        </svg>
+        Insights
+      </button>
 
-  <button
-    class="btn tooltip-btn"
-    :style="{ background: `linear-gradient(${bgColor('computer')})` }"
-    @click="gameClick()"
-    disabled
-    data-tooltip="Coming soon..."
-  >
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 8V4H8"/>
-      <rect width="16" height="12" x="4" y="8" rx="2"/>
-      <path d="M2 14h2"/>
-      <path d="M20 14h2"/>
-      <path d="M15 13v2"/>
-      <path d="M9 13v2"/>
-    </svg>
-    VS Computer
-  </button>
+      <button
+        class="btn tooltip-btn"
+        :style="{ background: `linear-gradient(${bgColor('computer')})` }"
+        @click="gameClick()"
+        disabled
+        data-tooltip="Coming soon..."
+      >
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 8V4H8"/>
+          <rect width="16" height="12" x="4" y="8" rx="2"/>
+          <path d="M2 14h2"/>
+          <path d="M20 14h2"/>
+          <path d="M15 13v2"/>
+          <path d="M9 13v2"/>
+        </svg>
+        VS Computer
+      </button>
 
-  <button
-    class="btn tooltip-btn"
-    :style="{ background: `linear-gradient(${bgColor('puzzles')})` }"
-    @click="puzzlesClick()"
-    disabled
-    data-tooltip="Coming soon..."
-  >
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>
-    </svg>
-    Puzzles
-  </button>
+      <button
+        class="btn tooltip-btn"
+        :style="{ background: `linear-gradient(${bgColor('puzzles')})` }"
+        @click="puzzlesClick()"
+        disabled
+        data-tooltip="Coming soon..."
+      >
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>
+        </svg>
+        Puzzles
+      </button>
+      <RouterLink to="/Privacy" class="privacy-btn" @click="menuOpen = false">
+        Privacy Policy
+      </RouterLink>
     </nav>
   </div>
 </template>
@@ -130,20 +157,27 @@
   }
 
   .title {
-    font-family: "Trebuchet MS", "Century Gothic", system-ui, sans-serif;
-    text-align: center;
-    margin-top: 2rem;
-    margin-bottom: 2rem;
-    font-size: clamp(1.4rem, 2.6vw, 2rem);
-    font-weight: 700;
-    letter-spacing: 1px;
-
-    background: linear-gradient(90deg, #d4a373, #faedcd);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 1rem 0 1.5rem;
     user-select: none;
+  }
+
+  .logo {
+    height: 3.5rem;
+    width: auto;
+    filter: drop-shadow(0 4px 10px rgba(245, 158, 11, 0.35));
+  }
+
+  .title-text {
+    font-family: "Montserrat", "Trebuchet MS", system-ui, sans-serif;
+    font-size: clamp(1.2rem, 2.2vw, 1.7rem);
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    padding-left: 0.2em; /* balances the letter-spacing so it looks centered */
+    color: #f4f1ea;
   }
 
   button {
@@ -303,12 +337,20 @@
       grid-column: 2;
       grid-row: 1;
       justify-self: center;
+      flex-direction: row;
+      gap: 0.5rem;
       min-width: 0;
       margin: 0;
-      text-align: center;
-      font-size: 1.05rem;
-      letter-spacing: 0.5px;
       white-space: nowrap;
+    }
+
+    .logo {
+      height: 1.6rem;
+    }
+
+    .title-text {
+      font-size: 1.05rem;
+      letter-spacing: 0.15em;
     }
 
     .menu-backdrop {
@@ -349,5 +391,21 @@
     .tooltip-btn::after {
       bottom: 125%;
     }
+  }
+
+  .privacy-btn {
+    margin-top: 1.5rem;
+    color: #ffffff;
+    font-size: 0.9rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    opacity: 0.8;
+    text-align: center;
+  }
+  .privacy-btn:hover { opacity: 1; }
+  .privacy-btn:focus-visible { outline: 2px solid #faedcd; outline-offset: 3px; }
+
+  @media (max-width: 767px) {
+    .privacy-btn { margin: 0.9rem 0 0.4rem; }
   }
 </style>
