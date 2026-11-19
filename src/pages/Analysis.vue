@@ -4,7 +4,7 @@
   //chess.js handles the rules: legal moves, FEN, PGN
   import { Chess } from 'chess.js'
   //the chessboard component
-  import { TheChessboard } from 'vue3-chessboard'
+  import TheChessboard from '../assets/TheChessboard.vue'
   //firebase login and database
   import { auth, db } from '../firebase'
   import { onAuthStateChanged } from 'firebase/auth'
@@ -1177,7 +1177,7 @@
 
     //wait briefly so fast clicking through moves doesn't restart the engine every time
     if (!importing) {
-      await new Promise(r => setTimeout(r, 150))
+      await new Promise(r => setTimeout(r, 0))
       if (run !== accuracyRun) return
     }
 
@@ -1472,7 +1472,7 @@
   //handles keyboard shortcuts
   const handleKeyDown = (event) => {
     //minimum time between arrow key moves
-    const delay = 200
+    const delay = 100
     const currentTime = Date.now()
     const tag = event.target?.tagName
     //don't steal keys while typing in a box
@@ -2069,11 +2069,18 @@
           <div class="board-col">
             <!-- the chessboard -->
             <TheChessboard
-              class="game-board"
-              @move="handleBothMoves"
-              @board-created="onBoardCreated"
-              :board-config="{ coordinates: true, animation: { enabled: true, duration: 100 }}"
-            />
+               class="game-board"
+               @move="handleBothMoves"
+               @board-created="onBoardCreated"
+               :board-config="{ 
+                 coordinates: true, 
+                 animation: { enabled: true, duration: 100 },
+                 colors: { 
+                   light: 'var(--board-light)', 
+                   dark: 'var(--board-dark)' 
+                 }
+               }"
+             />
             <!-- Best-move arrow: own overlay, never interferes with user-drawn arrows -->
             <svg
               v-if="bestArrow"
