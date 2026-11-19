@@ -228,7 +228,7 @@
   // chessground's shapes. That way it is always visible and never touches
   // (or clears) the arrows the user draws with right-click.
   //moves that are not good enough to show the arrow for
-  const NOT_BEST = ['good', 'excellent', 'inaccuracy', 'mistake', 'blunder']
+  const NOT_BEST = ['good', 'excellent', 'inaccuracy', 'miss', 'mistake', 'blunder']
   //fixes castling notation the engine uses (e1h1 becomes e1g1)
   const CASTLE_FIX = { e1h1: 'e1g1', e1a1: 'e1c1', e8h8: 'e8g8', e8a8: 'e8c8' }
 
@@ -1305,6 +1305,7 @@
       good: { color: '#8eae83', text: ' is a good move' },
       inaccuracy: { color: '#f2bc43', text: ' is an inaccuracy' },
       mistake: { color: '#f38800', text: ' is a mistake' },
+      miss: { color: '#ff7769', text: ' is a miss' },
       blunder: { color: '#FF0000', text: ' is a blunder' },
     }
     const config = descriptions[moveData.value.move_accuracy]
@@ -1654,8 +1655,8 @@
     //which side the user played
     const myColor = pendingGameMeta.myColor === 'black' ? 'black' : 'white'
     //points for each move quality
-    const weights = { brilliant: 100, great: 100, best: 100, book: 100, excellent: 90, good: 80, inaccuracy: 20, mistake: 10, blunder: 0 }
-    const myCounts = { brilliant: 0, great: 0, best: 0, book: 0, excellent: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 }
+    const weights = { brilliant: 100, great: 100, best: 100, book: 100, excellent: 90, good: 80, inaccuracy: 20, mistake: 10, miss: 5, blunder: 0 }
+    const myCounts = { brilliant: 0, great: 0, best: 0, book: 0, excellent: 0, good: 0, inaccuracy: 0, mistake: 0, miss: 0, blunder: 0 }
     let myWeightedSum = 0
     let myMoveCount = 0
     //accuracy per 10-move block
@@ -2071,7 +2072,7 @@
               class="game-board"
               @move="handleBothMoves"
               @board-created="onBoardCreated"
-              :board-config="{ coordinates: true, animation: { enabled: true, duration: 300 }}"
+              :board-config="{ coordinates: true, animation: { enabled: false }}"
             />
             <!-- Best-move arrow: own overlay, never interferes with user-drawn arrows -->
             <svg
@@ -2751,7 +2752,7 @@
                   </template>
                   <!-- dots for big moments (click to jump) -->
                   <span
-                    v-for="pt in evalGraphGeom.coords.filter(c => ['brilliant','great','inaccuracy','mistake','blunder'].includes(c.accuracy))"
+                    v-for="pt in evalGraphGeom.coords.filter(c => ['brilliant','great','inaccuracy','mistake','miss','blunder'].includes(c.accuracy))"
                     :key="'eg-' + pt.ply"
                     class="eg-dot"
                     :class="[pt.accuracy, { current: pt.nodeId === currentNode.id }]"
