@@ -5,6 +5,7 @@
     onAuthStateChanged, 
     signInWithEmailAndPassword, 
     createUserWithEmailAndPassword, 
+    sendPasswordResetEmail,
     signOut 
   } from 'firebase/auth'
 
@@ -14,6 +15,7 @@
   const isRegistering = ref(false)
   const authError = ref(null)
   const showAuthForm = ref(false)
+  const authInfo = ref(null)
 
   onMounted(() => {
     onAuthStateChanged(auth, (user) => {
@@ -25,6 +27,7 @@
   function openAuth(mode) {
     isRegistering.value = mode === 'register'
     authError.value = null
+    authInfo.value = null
     showAuthForm.value = true
   }
 
@@ -47,6 +50,21 @@
   async function handleLogout() {
     await signOut(auth)
   }
+
+  async function handleReset() {
+    authError.value = null
+    authInfo.value = null
+    if (!authEmail.value) {
+      authError.value = 'Enter your email first.'
+      return
+    }
+    try {
+      await sendPasswordResetEmail(auth, authEmail.value)
+      authInfo.value = 'If an account exists, we sent a reset link. Check your spam folder too.'
+    } catch (e) {
+      authError.value = e.message
+    }
+  }
 </script>
 
 <template>
@@ -63,6 +81,8 @@
         <input v-model="authEmail" type="email" placeholder="Email" class="auth-input" />
         <input v-model="authPassword" type="password" placeholder="Password" class="auth-input" @keyup.enter="handleAuth" />
         <button class="auth-submit" @click="handleAuth">{{ isRegistering ? 'Register' : 'Login' }}</button>
+        <button v-if="!isRegistering" class="forgot-btn" @click="handleReset">Forgot password?</button>
+        <p v-if="authInfo" class="auth-info">{{ authInfo }}</p>
         <p v-if="authError" class="auth-error">{{ authError }}</p>
       </div>
     </template>
@@ -268,4 +288,21 @@
     width: 100%;
   }
   .logout-btn:hover { background: rgba(255, 100, 100, 0.3); }
+
+  .forgot-btn {
+    background: none;
+    border: none;
+    color: rgba(244, 240, 227, 0.6);
+    font-size: 0.8rem;
+    text-decoration: underline;
+    padding: 0;
+  }
+  .forgot-btn:hover { color: #faedcd; }
+
+  .auth-info {
+    color: #a8d5a2;
+    font-size: 0.8rem;
+    margin: 0;
+    text-align: center;
+  }
 </style>
