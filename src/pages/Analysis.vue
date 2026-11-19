@@ -2072,7 +2072,7 @@
               class="game-board"
               @move="handleBothMoves"
               @board-created="onBoardCreated"
-              :board-config="{ coordinates: true, animation: { enabled: true, duration: 200 }}"
+              :board-config="{ coordinates: true, animation: { enabled: true, duration: 100 }}"
             />
             <!-- Best-move arrow: own overlay, never interferes with user-drawn arrows -->
             <svg
