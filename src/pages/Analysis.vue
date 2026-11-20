@@ -104,6 +104,8 @@
     clearTimeout(toastTimeout)
     clearTimeout(longPressTimer)
     clearTimeout(navHoldTimer)
+    clearTimeout(navKeyReleaseTimer)
+    clearTimeout(engineDebounceTimer)
     cancelUiFlush()
     document.body.style.overflow = ''
   })
@@ -206,7 +208,9 @@
 
   // ===== SOUND (see assets/useSound.js) =====================================
   //sound on/off, loading, and playing move sounds
-  const { soundOn, loadSounds, unlockAudio, playSound, soundForLastMove } = useSound()
+  const { soundOn, loadSounds, unlockAudio, playSound, soundForLastMove } = useSound({
+    isGameOver: () => chess.isGameOver()
+  })
 
   // --- Engine Toggle & MultiPV State ---
   //is the engine turned on
@@ -492,12 +496,16 @@
     }
   ])
 
-  //timers for long press, toast message and button hold
+  //timers for long press, toast message, button hold, and key repeat
   let longPressTimer = null
   let longPressTriggered = false
   let toastTimeout = null
-  //time of the last arrow key press (to stop key repeat being too fast)
-  let lastPress = 0
+  let navKeyHeld = false
+  let navKeyReleaseTimer = null
+  let engineDebounceTimer = null
+  let lastNavTime = 0
+  const NAV_REPEAT_DELAY = 90
+  const ENGINE_DEBOUNCE_MS = 140
 
   //the move tree: the root is the start position, each child is a move played from it
   const moveTree = {
@@ -640,13 +648,14 @@
   function centerActiveStrip() {
     const el = stripRef.value
     if (!el) return
+    const behavior = navKeyHeld ? 'auto' : 'smooth'
     const active = el.querySelector('.strip-cell.active')
     if (!active) {
-      el.scrollTo({ left: 0, behavior: 'smooth' })
+      el.scrollTo({ left: 0, behavior })
       return
     }
     const target = active.offsetLeft - (el.clientWidth - active.offsetWidth) / 2
-    el.scrollTo({ left: Math.max(0, target), behavior: 'smooth' })
+    el.scrollTo({ left: Math.max(0, target), behavior })
   }
 
   // Tap = previous/next, hold = jump to start/end
@@ -837,6 +846,42 @@
   //material difference (positive = white is ahead)
   const materialDiff = ref(0)
 
+  const sortCapturedDesc = (a, b) => (PIECE_MATERIAL[b[1]] || 0) - (PIECE_MATERIAL[a[1]] || 0)
+
+  //updates captured pieces and material incrementally for a single move
+  function applyCaptureDelta(moveObj, sign = 1) {
+    if (!moveObj || !moveObj.captured) return
+    const capturedColor = moveObj.color === 'w' ? 'b' : 'w'
+    const key = capturedColor + moveObj.captured
+    const val = (PIECE_MATERIAL[moveObj.captured] || 0) * sign
+
+    if (moveObj.color === 'w') {
+      if (sign > 0) {
+        capturedByWhite.value = [...capturedByWhite.value, key].sort(sortCapturedDesc)
+      } else {
+        const idx = capturedByWhite.value.indexOf(key)
+        if (idx !== -1) {
+          const next = [...capturedByWhite.value]
+          next.splice(idx, 1)
+          capturedByWhite.value = next
+        }
+      }
+      materialDiff.value += val
+    } else {
+      if (sign > 0) {
+        capturedByBlack.value = [...capturedByBlack.value, key].sort(sortCapturedDesc)
+      } else {
+        const idx = capturedByBlack.value.indexOf(key)
+        if (idx !== -1) {
+          const next = [...capturedByBlack.value]
+          next.splice(idx, 1)
+          capturedByBlack.value = next
+        }
+      }
+      materialDiff.value -= val
+    }
+  }
+
   //works out captured pieces and material from the moves played to the current position
   function recalcCapturedPieces() {
     const wCap = []
@@ -866,10 +911,8 @@
         }
       }
     }
-    //sorts the captured pieces from most valuable to least
-    const sortDesc = (a, b) => (PIECE_MATERIAL[b[1]] || 0) - (PIECE_MATERIAL[a[1]] || 0)
-    capturedByWhite.value = wCap.sort(sortDesc)
-    capturedByBlack.value = bCap.sort(sortDesc)
+    capturedByWhite.value = wCap.sort(sortCapturedDesc)
+    capturedByBlack.value = bCap.sort(sortCapturedDesc)
     materialDiff.value = wMat - bMat
   }
 
@@ -888,13 +931,15 @@
     if (aRect.top < topLimit) delta = aRect.top - topLimit
     else if (aRect.bottom > bottomLimit) delta = aRect.bottom - bottomLimit
     if (Math.abs(delta) > 1) {
-      container.scrollTo({ top: container.scrollTop + delta, behavior: 'smooth' })
+      container.scrollTo({
+        top: container.scrollTop + delta,
+        behavior: navKeyHeld ? 'auto' : 'smooth'
+      })
     }
   }
 
-  //when the current move changes, update captured pieces, the graph and the scroll position
+  //when the current move changes, update the graph and the scroll position
   watch(currentNode, () => {
-    recalcCapturedPieces()
     rebuildEvalHistory()
     nextTick(() => {
       scrollActiveMoveIntoView()
@@ -956,6 +1001,7 @@
 
   //closes the full screen report and goes back to the moves tab
   function startReview() {
+    playSound('game-start')
     isReportMaximized.value = false
     activeTab.value = defaultTab()
   }
@@ -973,13 +1019,14 @@
     }
     //illegal move: put the piece back
     if (!sanMove) {
+      playSound('illegal')
       boardAPI.value.setPosition(currentNode.value.fen)
       return
     }
     soundForLastMove(sanMove)
     attachMove(sanMove, uci)
     movesListUCI.value.push(uci)
-    recalcCapturedPieces()
+    if (sanMove.captured) applyCaptureDelta(sanMove, 1)
     requestAnalysisForNewMove()
   }
 
@@ -990,12 +1037,12 @@
     lastMoveAccuracy.value = null
     //already at the start
     if (currentNode.value.parent === null) return
-    chess.undo()
+    const undone = chess.undo()
     currentNode.value = currentNode.value.parent
     movesListUCI.value.pop()
     boardAPI.value.setPosition(chess.fen())
     playSound('move')
-    recalcCapturedPieces()
+    if (undone?.captured) applyCaptureDelta(undone, -1)
   }
 
   //goes forward one move (along the main line)
@@ -1008,17 +1055,46 @@
     const nextNode = currentNode.value.children[0]
     let sanMove
     try { sanMove = chess.move(nextNode.uci) } catch (e) { sanMove = null }
-    if (sanMove) soundForLastMove(sanMove)
+    if (sanMove) {
+      soundForLastMove(sanMove)
+      if (sanMove.captured) applyCaptureDelta(sanMove, 1)
+    }
     movesListUCI.value.push(nextNode.uci)
     currentNode.value = nextNode
     boardAPI.value.setPosition(nextNode.fen)
-    recalcCapturedPieces()
   }
 
-  //goes back one move and re-runs the engine
-  function undoAccuracy() { undoMove(); getAccuracy() }
-  //goes forward one move and re-runs the engine
-  function redoAccuracy() { redoMove(); getAccuracy() }
+  //puts the classification icon on the board's own badge layer (always above the pieces)
+  watch([lastMoveSquare, lastMoveAccuracy, boardAPI], ([sq, acc, api]) => {
+    if (!api) return
+    api.setBadges(
+      sq && acc
+        ? [{ square: sq, src: accuracySymbol(acc), label: acc, size: 50 }]
+        : []
+    )
+  })
+
+  function scheduleEngineAfterNav(immediate = false) {
+    clearTimeout(engineDebounceTimer)
+    if (immediate) {
+      getAccuracy()
+      return
+    }
+    engineDebounceTimer = setTimeout(() => {
+      if (!isImporting.value) getAccuracy()
+    }, ENGINE_DEBOUNCE_MS)
+  }
+
+  function stepMove(direction, fromKeyRepeat = false) {
+    if (direction === 'prev') undoMove()
+    else redoMove()
+    scheduleEngineAfterNav(!fromKeyRepeat)
+  }
+
+  //goes back one move and triggers engine analysis
+  function undoAccuracy() { stepMove('prev', false) }
+  //goes forward one move and triggers engine analysis
+  function redoAccuracy() { stepMove('next', false) }
 
   //jumps to any move in the tree by replaying all moves up to it
   function jumpToNode(nodeId) {
@@ -1028,7 +1104,7 @@
     const uciMoves = []
     let current = node
     while (current.parent !== null) { uciMoves.unshift(current.uci); current = current.parent }
-  //rebuilds the chess game from the start position (the FEN, if one was loaded)
+    //rebuilds the chess game from the start position (the FEN, if one was loaded)
     chess.load(moveTree.fen)
     for (const uci of uciMoves) {
       try {
@@ -1122,6 +1198,7 @@
 
   //runs the engine on the current position (reuses saved results whenever they are good enough)
   async function getAccuracy() {
+    clearTimeout(engineDebounceTimer)
     const run = ++accuracyRun
     //drop any screen update left over from the previous position
     cancelUiFlush()
@@ -1411,9 +1488,9 @@
     soundForLastMove(sanMove)
     attachMove(sanMove, uci)
     movesListUCI.value.push(uci)
+    if (sanMove.captured) applyCaptureDelta(sanMove, 1)
     boardAPI.value.setPosition(chess.fen())
     treeVersion.value++
-    recalcCapturedPieces()
     requestAnalysisForNewMove()
   }
 
@@ -1471,9 +1548,6 @@
 
   //handles keyboard shortcuts
   const handleKeyDown = (event) => {
-    //minimum time between arrow key moves
-    const delay = 100
-    const currentTime = Date.now()
     const tag = event.target?.tagName
     //don't steal keys while typing in a box
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
@@ -1493,9 +1567,26 @@
     }
     //no shortcuts during import
     if (isImporting.value) return
+
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const now = Date.now()
+      if (now - lastNavTime < NAV_REPEAT_DELAY) return
+      lastNavTime = now
+      event.preventDefault()
+
+      const isRepeat = event.repeat || navKeyHeld
+      navKeyHeld = true
+      clearTimeout(navKeyReleaseTimer)
+      navKeyReleaseTimer = setTimeout(() => {
+        navKeyHeld = false
+        scheduleEngineAfterNav(true)
+      }, 180)
+
+      stepMove(event.key === 'ArrowLeft' ? 'prev' : 'next', isRepeat)
+      return
+    }
+
     switch (event.key) {
-      case 'ArrowLeft': if (currentTime - lastPress < delay) return; lastPress = currentTime; event.preventDefault(); undoAccuracy(); break
-      case 'ArrowRight': if (currentTime - lastPress < delay) return; lastPress = currentTime; event.preventDefault(); redoAccuracy(); break
       case 'Home': event.preventDefault(); goToStart(); break
       case 'End': event.preventDefault(); goToEnd(); break
       case 'f': case 'F': event.preventDefault(); flipBoard(); break
@@ -1523,7 +1614,7 @@
     const normalizedUci = `${from}${to}${promotion ?? ''}`
     attachMove(sanMove, normalizedUci)
     movesListUCI.value.push(normalizedUci)
-    recalcCapturedPieces()
+    if (sanMove.captured) applyCaptureDelta(sanMove, 1)
     return sanMove
   }
 
@@ -2072,12 +2163,12 @@
                class="game-board"
                @move="handleBothMoves"
                @board-created="onBoardCreated"
-               :board-config="{ 
-                 coordinates: true, 
+               :board-config="{
+                 coordinates: true,
                  animation: { enabled: true, duration: 100 },
-                 colors: { 
-                   light: 'var(--board-light)', 
-                   dark: 'var(--board-dark)' 
+                 colors: {
+                   light: 'var(--board-light)',
+                   dark: 'var(--board-dark)'
                  }
                }"
              />
@@ -2098,13 +2189,6 @@
               />
               <polygon :points="bestArrow.head" class="best-arrow-head" />
             </svg>
-            <!-- accuracy icon on the last move square -->
-            <img
-              v-if="lastMoveSquare && lastMoveAccuracy"
-              :src="accuracySymbol(lastMoveAccuracy)"
-              class="board-acc-icon"
-              :style="squareStyle(lastMoveSquare)"
-            />
           </div>
           <!-- eval bar -->
           <div
@@ -2480,7 +2564,7 @@
                 class="large-acc"
                 :class="currentNode.accuracy"
               />
-            <p :style="{ color: color }" class="accuracydescribtion">        
+            <p :style="{ color: color }" class="accuracydescribtion">
               {{ isAccuracy }}
             </p>
           </div>

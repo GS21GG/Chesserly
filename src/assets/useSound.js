@@ -1,4 +1,4 @@
-// assets/composables/useSound.js
+// assets/useSound.js
 // Move sounds: loading, unlocking and playing.
 import { ref } from 'vue'
 import moveSfx from './sounds/move.mp3'
@@ -6,10 +6,17 @@ import captureSfx from './sounds/capture.mp3'
 import checkSfx from './sounds/check.mp3'
 import castleSfx from './sounds/castle.mp3'
 import promoteSfx from './sounds/promote.mp3'
+import gameStartSfx from './sounds/game-start.mp3'
+import gameEndSfx from './sounds/game-end.mp3'
+import illegalSfx from './sounds/illegal.mp3'
 
-export function useSound() {
+// isGameOver: a function that tells us if the game just ended
+export function useSound({ isGameOver = () => false } = {}) {
   const soundOn = ref(true)
-  const soundUrls = { move: moveSfx, capture: captureSfx, check: checkSfx, castle: castleSfx, promote: promoteSfx }
+  const soundUrls = {
+    move: moveSfx, capture: captureSfx, check: checkSfx, castle: castleSfx, promote: promoteSfx,
+    'game-start': gameStartSfx, 'game-end': gameEndSfx, illegal: illegalSfx
+  }
   const audioBuffers = {}
   let audioCtx = null
   let masterGain = null
@@ -63,7 +70,11 @@ export function useSound() {
     else if (isCastle) primarySound = 'castle'
     else if (isPromotion) primarySound = 'promote'
     playSound(primarySound)
-    if (isCheck) {
+
+    // game over (mate, stalemate, draw): play the end sound instead of the check sound
+    if (isGameOver()) {
+      setTimeout(() => playSound('game-end'), 250)
+    } else if (isCheck) {
       setTimeout(() => playSound('check'), 120)
     }
   }

@@ -79,82 +79,85 @@ watch(() => props.boardConfig, c => {
   applyConfig(c || {})
 }, { deep: true })
 
-/* ════════════════════════ 2 · PIECE ART — classic Staunton, shaded ════════════════════════ */
+/* ════════════════════ 2 · PIECE ART — glossy Staunton, classic set ════════════════════ */
 const uid = 'cb' + Math.random().toString(36).slice(2, 8)
 const ART_H = 35.2, ART_CX = 22.5, ART_CY = 22.2
-// One silhouette path per piece (body + base together → a single clean outline),
-// one merged detail path, a few accents. Ground shadow rx per piece.
-const SHADOW_RX = { p: 10.5, r: 12.5, n: 12.5, b: 11.5, q: 13.5, k: 13.5 }
+// k: 'b' body (fill+outline+sheen) · 'd' detail strokes · 'e' eye/nostril dot · 'x' cross finial
+const SHADOW_RX = { p: 11.5, r: 11.2, n: 12.6, b: 10.2, q: 14.2, k: 11.6 }
 const ART = {
   p: [
-    { t: 'path', k: 'b', d: 'M13.4 39.2 H31.6 V37.9 C31.6 37.2 31.2 36.6 30.5 36.2 L29.2 35.5 C26.9 33.9 25.5 31.4 25.2 28.2 L24.9 24.6 C24.8 23.4 25.4 22.4 26.5 21.8 L27.8 21.1 C28.6 20.7 28.6 19.7 27.8 19.3 L25.4 18 C26.9 16.9 27.8 15.2 27.8 13.2 C27.8 10.3 25.4 7.9 22.5 7.9 C19.6 7.9 17.2 10.3 17.2 13.2 C17.2 15.2 18.1 16.9 19.6 18 L17.2 19.3 C16.4 19.7 16.4 20.7 17.2 21.1 L18.5 21.8 C19.6 22.4 20.2 23.4 20.1 24.6 L19.8 28.2 C19.5 31.4 18.1 33.9 15.8 35.5 L14.5 36.2 C13.8 36.6 13.4 37.2 13.4 37.9 Z' },
-    { t: 'path', k: 'd', d: 'M18.9 21.6 H26.1 M15.4 35.8 H29.6' }
+    { t: 'circle', k: 'b', cx: 22.5, cy: 12.6, r: 4.9 },
+    { t: 'path', k: 'b', d: 'M19.2 16.8 H25.8 C26.6 16.8 27.2 17.4 27.2 18.2 V18.9 C27.2 19.6 26.7 20.2 26.0 20.4 L25.6 20.5 C25.9 24.5 26.9 28.6 28.9 31.6 C29.6 32.7 30.6 33.5 31.8 34.0 L32.6 34.3 C33.4 34.6 33.9 35.3 33.9 36.1 V37.6 C33.9 38.6 33.1 39.4 32.1 39.4 H12.9 C11.9 39.4 11.1 38.6 11.1 37.6 V36.1 C11.1 35.3 11.6 34.6 12.4 34.3 L13.2 34.0 C14.4 33.5 15.4 32.7 16.1 31.6 C18.1 28.6 19.1 24.5 19.4 20.5 L19.0 20.4 C18.3 20.2 17.8 19.6 17.8 18.9 V18.2 C17.8 17.4 18.4 16.8 19.2 16.8 Z' },
+    { t: 'path', k: 'd', d: 'M17.9 18.9 H27.1 M19.4 20.5 H25.6 M12.6 34.2 H32.4' }
   ],
   r: [
-    { t: 'path', k: 'b', d: 'M11.5 39.2 H33.5 V37.6 C33.5 36.9 33.1 36.3 32.4 36 L30.8 35.2 L30.8 33.4 L29.8 31.8 L29 17.6 L32.2 14.6 L32.2 8.6 L28.4 8.6 L28.4 11.2 L24.9 11.2 L24.9 8.6 L20.1 8.6 L20.1 11.2 L16.6 11.2 L16.6 8.6 L12.8 8.6 L12.8 14.6 L16 17.6 L15.2 31.8 L14.2 33.4 L14.2 35.2 L12.6 36 C11.9 36.3 11.5 36.9 11.5 37.6 Z' },
-    { t: 'path', k: 'd', d: 'M16 17.6 H29 M15.2 31.8 H29.8 M14.2 33.4 H30.8 M12.7 36.2 H32.3' }
+    { t: 'path', k: 'b', d: 'M12.8 8.6 H17.0 V11.6 H20.4 V8.6 H24.6 V11.6 H28.0 V8.6 H32.2 V14.8 L29.6 17.4 C29.0 23.0 28.8 28.4 29.8 32.6 L30.6 33.0 C31.8 33.4 32.6 34.2 32.6 35.4 V37.4 C32.6 38.5 31.7 39.4 30.6 39.4 H14.4 C13.3 39.4 12.4 38.5 12.4 37.4 V35.4 C12.4 34.2 13.2 33.4 14.4 33.0 L15.2 32.6 C16.2 28.4 16.0 23.0 15.4 17.4 L12.8 14.8 Z' },
+    { t: 'path', k: 'd', d: 'M15.4 17.4 H29.6 M15.2 32.8 H29.8 M12.6 35.4 H32.4' }
   ],
   n: [
-    { t: 'path', k: 'b', d: 'M11.5 39.2 H33.5 V37.6 C33.5 36.9 33.1 36.3 32.4 36 L31.6 35.6 C31.9 30.2 31.5 24.3 29.8 19.2 C28.3 14.7 25.6 11.2 21.9 9.6 L21.2 6.4 L19.4 9 C18.6 9 17.8 9.2 17.1 9.6 L15 8 L14.8 11.2 C13.9 12.5 13.1 14.2 12.2 15.9 C11 18.2 9.6 20.2 8.3 21.9 C7.3 23.2 7.4 24.6 8.6 25.5 C9.6 26.3 10.9 26.5 12.1 26.1 C13 25.8 13.8 25.3 14.6 24.7 C15.1 25.4 15.9 25.9 16.8 26 C15.6 28.6 14.5 31.6 14.1 35.6 L12.6 36 C11.9 36.3 11.5 36.9 11.5 37.6 Z' },
-    { t: 'path', k: 'd', d: 'M23.6 11.9 C27.4 14.3 29.5 18.5 30.3 23.6 M17.5 10.3 C18.3 11 18.9 11.9 19.3 12.9 M9.1 24.9 C10.2 25.4 11.4 25.5 12.5 25.1' },
-    { t: 'circle', k: 'e', cx: 14.7, cy: 16.3, r: 1.15 },
-    { t: 'circle', k: 'e', cx: 9.7, cy: 22.5, r: 0.8 }
+    { t: 'path', k: 'b', d: 'M17.4 5.4 L19.6 7.4 C20.3 7.2 21.0 7.1 21.7 7.1 L23.6 4.6 L24.6 7.6 C27.8 9.2 30.2 12.4 31.4 16.4 C32.5 20.2 32.9 25.6 32.5 30.6 C32.4 32.0 32.5 33.4 32.7 34.6 C33.7 35.0 34.3 35.8 34.3 36.9 V37.5 C34.3 38.6 33.4 39.4 32.3 39.4 H12.7 C11.6 39.4 10.7 38.6 10.7 37.5 V36.9 C10.7 35.8 11.3 35.0 12.3 34.6 C12.8 30.6 14.0 27.0 16.2 24.0 C14.8 23.4 13.4 22.6 12.2 21.6 C11.0 20.8 9.8 20.4 9.2 19.6 C8.5 18.7 8.6 17.5 9.4 16.8 C10.2 16.1 11.4 15.8 12.6 15.8 C13.4 12.8 15.2 10.0 17.6 8.6 Z' },
+    { t: 'path', k: 'd', d: 'M24.8 8.6 C27.8 10.8 29.8 14.0 30.8 17.8 C31.6 21.6 31.8 26.2 31.4 30.4 M9.8 19.2 C10.8 19.8 12.0 20.0 13.0 19.6' },
+    { t: 'circle', k: 'e', cx: 14.0, cy: 14.4, r: 1.05 },
+    { t: 'circle', k: 'e', cx: 10.4, cy: 17.4, r: 0.75 }
   ],
   b: [
-    { t: 'circle', k: 'b', cx: 22.5, cy: 7.3, r: 2.3 },
-    { t: 'path', k: 'b', d: 'M12.4 39.2 H32.6 V37.8 C32.6 37.1 32.2 36.5 31.5 36.2 L30.2 35.6 C29 34.6 28.4 33.2 28.6 31.6 L28.8 30.2 L24.6 28.4 C27.2 27.3 28.8 24.9 28.8 22 C28.8 17.4 26 12.6 22.5 9.8 C19 12.6 16.2 17.4 16.2 22 C16.2 24.9 17.8 27.3 20.4 28.4 L16.2 30.2 L16.4 31.6 C16.6 33.2 16 34.6 14.8 35.6 L13.5 36.2 C12.8 36.5 12.4 37.1 12.4 37.8 Z' },
-    { t: 'path', k: 'd', d: 'M22.5 14.4 L25.3 18.6 M16.8 30.2 H28.2 M14 36 H31' }
+    { t: 'circle', k: 'b', cx: 22.5, cy: 7.0, r: 2.2 },
+    { t: 'path', k: 'b', d: 'M22.5 9.2 C25.8 12.4 28.2 16.6 28.2 20.6 C28.2 23.6 25.6 25.6 22.5 25.6 C19.4 25.6 16.8 23.6 16.8 20.6 C16.8 16.6 19.2 12.4 22.5 9.2 Z' },
+    { t: 'path', k: 'b', d: 'M14.6 27.6 C16.4 26.2 18.0 25.4 19.6 25.0 H25.4 C27.0 25.4 28.6 26.2 30.4 27.6 C28.8 28.6 27.2 29.2 25.6 29.5 H19.4 C17.8 29.2 16.2 28.6 14.6 27.6 Z' },
+    { t: 'path', k: 'b', d: 'M19.5 29.4 H25.5 C25.8 31.4 26.8 33.0 28.4 34.0 L29.4 34.5 C30.8 35.0 31.6 35.9 31.6 37.0 V37.6 C31.6 38.6 30.8 39.4 29.8 39.4 H15.2 C14.2 39.4 13.4 38.6 13.4 37.6 V37.0 C13.4 35.9 14.2 35.0 15.6 34.5 L16.6 34.0 C18.2 33.0 19.2 31.4 19.5 29.4 Z' },
+    { t: 'path', k: 'd', d: 'M22.5 14.6 V20.6 M19.9 17.6 H25.1 M19.4 29.5 H25.6 M15.6 34.4 H29.4' }
   ],
   q: [
-    { t: 'circle', k: 'b', cx: 8.7, cy: 10.9, r: 2 },
-    { t: 'circle', k: 'b', cx: 15.3, cy: 8.3, r: 2 },
-    { t: 'circle', k: 'b', cx: 22.5, cy: 6.9, r: 2.1 },
-    { t: 'circle', k: 'b', cx: 29.7, cy: 8.3, r: 2 },
-    { t: 'circle', k: 'b', cx: 36.3, cy: 10.9, r: 2 },
-    { t: 'path', k: 'b', d: 'M9.2 12.4 L13.6 19.2 L15.2 10.4 L19.6 18.4 L22.5 9 L25.4 18.4 L29.8 10.4 L31.4 19.2 L35.8 12.4 L33.2 25.2 C32.4 28.2 32.6 31.2 34.4 34.2 L34.4 35.5 L33 36.1 C33.7 36.5 34.1 37.1 34.1 37.8 L34.1 39.2 L10.9 39.2 L10.9 37.8 C10.9 37.1 11.3 36.5 12 36.1 L10.6 35.5 L10.6 34.2 C12.4 31.2 12.6 28.2 11.8 25.2 Z' },
-    { t: 'path', k: 'd', d: 'M12.4 26 C17.5 24.7 27.5 24.7 32.6 26 M12.3 30.6 C17.5 29.4 27.5 29.4 32.7 30.6 M11.8 36.2 H33.2' }
+    { t: 'circle', k: 'b', cx: 8.9, cy: 11.2, r: 2.0 },
+    { t: 'circle', k: 'b', cx: 15.5, cy: 8.4, r: 2.0 },
+    { t: 'circle', k: 'b', cx: 22.5, cy: 7.2, r: 2.1 },
+    { t: 'circle', k: 'b', cx: 29.5, cy: 8.4, r: 2.0 },
+    { t: 'circle', k: 'b', cx: 36.1, cy: 11.2, r: 2.0 },
+    { t: 'path', k: 'b', d: 'M9.4 12.8 L13.8 19.6 L16.0 10.6 L19.8 18.8 L22.5 9.4 L25.2 18.8 L29.0 10.6 L31.2 19.6 L35.6 12.8 L33.0 25.0 C32.2 28.2 32.6 31.4 34.2 34.2 V35.2 C35.4 35.7 36.0 36.5 36.0 37.5 V37.7 C36.0 38.7 35.2 39.4 34.2 39.4 H10.8 C9.8 39.4 9.0 38.7 9.0 37.7 V37.5 C9.0 36.5 9.6 35.7 10.8 35.2 V34.2 C12.4 31.4 12.8 28.2 12.0 25.0 Z' },
+    { t: 'path', k: 'd', d: 'M12.6 25.6 C17.6 24.2 27.4 24.2 32.4 25.6 M12.2 30.4 C17.4 29.2 27.6 29.2 32.8 30.4 M10.8 35.2 H34.2' }
   ],
   k: [
-    { t: 'path', k: 'x', d: 'M21.3 4.6 H23.7 V7.2 H26.3 V9.6 H23.7 V12.2 H21.3 V9.6 H18.7 V7.2 H21.3 Z' },
-    { t: 'path', k: 'b', d: 'M11.3 39.2 H33.7 V37.8 C33.7 37.1 33.3 36.5 32.6 36.1 L31.4 35.5 L31.4 34.3 C33 31.5 33.6 28 32.4 25.2 C31.2 22.4 28.2 21.2 25.6 22.2 C26.8 20.4 27.4 18 26.8 15.9 C26.2 13.8 24.5 12.4 22.5 12.4 C20.5 12.4 18.8 13.8 18.2 15.9 C17.6 18 18.2 20.4 19.4 22.2 C16.8 21.2 13.8 22.4 12.6 25.2 C11.4 28 12 31.5 13.6 34.3 L13.6 35.5 L12.4 36.1 C11.7 36.5 11.3 37.1 11.3 37.8 Z' },
-    { t: 'path', k: 'd', d: 'M19.6 22.6 C21.2 23.5 23.8 23.5 25.4 22.6 M22.5 23.8 V30.6 M14 31.8 C18.5 30.2 26.5 30.2 31 31.8 M12.3 36.2 H32.7' }
+    { t: 'path', k: 'x', d: 'M21.2 4.4 H23.8 V7.0 H26.4 V9.4 H23.8 V12.0 H21.2 V9.4 H18.6 V7.0 H21.2 Z' },
+    { t: 'path', k: 'b', d: 'M22.5 12.2 C24.6 12.2 26.3 13.7 26.9 15.8 C27.5 18.0 26.9 20.4 25.7 22.2 C28.3 21.2 31.3 22.4 32.5 25.2 C33.7 28.0 33.1 31.5 31.5 34.3 V35.3 C32.7 35.8 33.3 36.6 33.3 37.6 V37.8 C33.3 38.8 32.5 39.4 31.5 39.4 H13.5 C12.5 39.4 11.7 38.8 11.7 37.8 V37.6 C11.7 36.6 12.3 35.8 13.5 35.3 V34.3 C11.9 31.5 11.3 28.0 12.5 25.2 C13.7 22.4 16.7 21.2 19.3 22.2 C18.1 20.4 17.5 18.0 18.1 15.8 C18.7 13.7 20.4 12.2 22.5 12.2 Z' },
+    { t: 'path', k: 'd', d: 'M19.6 22.6 C21.2 23.6 23.8 23.6 25.4 22.6 M22.5 23.8 V30.8 M14.2 31.6 C18.6 30.0 26.4 30.0 30.8 31.6 M13.5 35.3 H31.5' }
   ]
 }
 
-// Gradients are defined once and shared by every piece.
+// Paint: 3-stop ivory / graphite bodies + one diagonal sheen (light from upper-left,
+// warm core-shadow at lower-right) + the shared radial ground shadow.
 const gradDefs =
   `<linearGradient id="${uid}-fillw" x1="0" y1="0" x2="0" y2="1">` +
-    `<stop offset="0" stop-color="#FCF9F0"/><stop offset="1" stop-color="#DAD2BE"/></linearGradient>` +
+  `<stop offset="0" stop-color="#FFFDF4"/><stop offset=".45" stop-color="#F2E9D3"/><stop offset="1" stop-color="#D3C29A"/></linearGradient>` +
   `<linearGradient id="${uid}-fillb" x1="0" y1="0" x2="0" y2="1">` +
-    `<stop offset="0" stop-color="#5A5C68"/><stop offset="1" stop-color="#1D1E24"/></linearGradient>` +
-  `<linearGradient id="${uid}-sheenw" x1="0" y1="0" x2="1" y2="0">` +
-    `<stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/><stop offset=".55" stop-color="#7A6A4A" stop-opacity="0"/><stop offset="1" stop-color="#6B5A3A" stop-opacity=".26"/></linearGradient>` +
-  `<linearGradient id="${uid}-sheenb" x1="0" y1="0" x2="1" y2="0">` +
-    `<stop offset="0" stop-color="#FFFFFF" stop-opacity=".22"/><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#000000" stop-opacity=".2"/></linearGradient>` +
+  `<stop offset="0" stop-color="#83858C"/><stop offset=".45" stop-color="#4B4D54"/><stop offset="1" stop-color="#1D1E22"/></linearGradient>` +
+  `<linearGradient id="${uid}-sheenw" x1="0" y1="0" x2=".85" y2="1">` +
+  `<stop offset="0" stop-color="#FFFFFF" stop-opacity=".5"/><stop offset=".38" stop-color="#FFFFFF" stop-opacity=".12"/><stop offset=".62" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#6B5A3A" stop-opacity=".18"/></linearGradient>` +
+  `<linearGradient id="${uid}-sheenb" x1="0" y1="0" x2=".85" y2="1">` +
+  `<stop offset="0" stop-color="#FFFFFF" stop-opacity=".34"/><stop offset=".38" stop-color="#FFFFFF" stop-opacity=".1"/><stop offset=".62" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#000000" stop-opacity=".3"/></linearGradient>` +
   `<radialGradient id="${uid}-gsh">` +
-    `<stop offset="0" stop-color="#000" stop-opacity=".3"/><stop offset=".65" stop-color="#000" stop-opacity=".16"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>`
+  `<stop offset="0" stop-color="#000" stop-opacity=".3"/><stop offset=".65" stop-color="#000" stop-opacity=".16"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>`
 
 function pieceGroup(color, type) {
   const white = color === 'w'
   const F = `url(#${uid}-fill${color})`
   const SH = `url(#${uid}-sheen${color})`
-  const S = white ? '#403A2E' : '#0A0A0E'
-  const D = white ? '#6E6455' : '#D8DAE2'
+  const S = white ? '#3E382B' : '#0E0E12'
+  const D = white ? '#4A4436' : '#0B0B0E'
   const shadow = `<ellipse cx="22.5" cy="39.9" rx="${SHADOW_RX[type]}" ry="2.2" fill="url(#${uid}-gsh)"/>`
   const body = ART[type].map(pr => {
     if (pr.t === 'circle') {
       if (pr.k === 'e') return `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${D}"/>`
-      return `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${F}" stroke="${S}" stroke-width="1.4"/>` +
+      return `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${F}" stroke="${S}" stroke-width="1.5"/>` +
              `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${SH}"/>`
     }
     if (pr.k === 'b') {
-      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.4" stroke-linejoin="round"/>` +
+      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.5" stroke-linejoin="round"/>` +
              `<path d="${pr.d}" fill="${SH}"/>`
     }
     if (pr.k === 'x') {
-      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.3" stroke-linejoin="round"/>`
+      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.4" stroke-linejoin="round"/>`
     }
-    return `<path d="${pr.d}" fill="none" stroke="${D}" stroke-opacity="${white ? 0.8 : 0.55}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`
+    return `<path d="${pr.d}" fill="none" stroke="${D}" stroke-opacity="${white ? 0.85 : 0.8}" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>`
   }).join('')
   return `<g id="${uid}-${color}${type}">${shadow}${body}</g>`
 }
@@ -1069,6 +1072,7 @@ onBeforeUnmount(() => {
 .cb-badge { position: absolute; left: 0; top: 0; width: 12.5%; height: 12.5%; }
 .cb-badge img {
   position: absolute; right: 0; top: 0;
+  translate: 30% -30%;
   object-fit: contain; display: block;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
   animation: cb-badge-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.5) both;
