@@ -3,8 +3,12 @@
   import TheChessboard from '../assets/TheChessboard.vue'
 
   What's new in this version:
-  · Pieces: redrawn Staunton set — one clean silhouette per piece, warm ivory / charcoal
-    shading, side sheen and a soft radial ground shadow. Still pure SVG, no filters.
+  · Pieces: redrawn Staunton set — classic proportions (taller king/queen/bishop, shorter pawn),
+    warm ivory / charcoal shading with a subtle sheen, soft radial ground shadow.
+    Knight now reads clearly as a horse: pointed ear, defined jaw notch, two-tone mane ridge,
+    eye and nostril. Bishop has a single continuous tapered body (no disjointed collar).
+    Rook has 5 crenellations and a stepped two-tier base. Queen has 5 connected ball-tipped
+    spikes. King has a cross pattée sitting flush on the crown. Pure SVG, no filters.
   · Captures: no more spark burst. The taken piece simply shrinks away underneath the
     arriving piece, which lands with a tiny squash. Quiet and clean.
   · Animations: springy pick-up / drop, distance-based glide, lift + landing squash,
@@ -86,78 +90,81 @@ const ART_H = 35.2, ART_CX = 22.5, ART_CY = 22.2
 const SHADOW_RX = { p: 11.5, r: 11.2, n: 12.6, b: 10.2, q: 14.2, k: 11.6 }
 const ART = {
   p: [
-    { t: 'circle', k: 'b', cx: 22.5, cy: 12.6, r: 4.9 },
-    { t: 'path', k: 'b', d: 'M19.2 16.8 H25.8 C26.6 16.8 27.2 17.4 27.2 18.2 V18.9 C27.2 19.6 26.7 20.2 26.0 20.4 L25.6 20.5 C25.9 24.5 26.9 28.6 28.9 31.6 C29.6 32.7 30.6 33.5 31.8 34.0 L32.6 34.3 C33.4 34.6 33.9 35.3 33.9 36.1 V37.6 C33.9 38.6 33.1 39.4 32.1 39.4 H12.9 C11.9 39.4 11.1 38.6 11.1 37.6 V36.1 C11.1 35.3 11.6 34.6 12.4 34.3 L13.2 34.0 C14.4 33.5 15.4 32.7 16.1 31.6 C18.1 28.6 19.1 24.5 19.4 20.5 L19.0 20.4 C18.3 20.2 17.8 19.6 17.8 18.9 V18.2 C17.8 17.4 18.4 16.8 19.2 16.8 Z' },
-    { t: 'path', k: 'd', d: 'M17.9 18.9 H27.1 M19.4 20.5 H25.6 M12.6 34.2 H32.4' }
+    { t: 'circle', k: 'b', cx: 22.5, cy: 8.6, r: 4.7 },
+    { t: 'path', k: 'b', d: 'M18 13 H27 C27.85 13 28.5 13.65 28.5 14.5 V15.1 C28.5 15.78 28.03 16.36 27.36 16.55 L26.95 16.67 C27.32 20.5 28.05 24.1 29.55 27.2 C30.28 28.45 31.28 29.32 32.4 29.85 L33.05 30.15 C33.95 30.55 34.5 31.4 34.5 32.32 V36 C34.5 37.1 33.6 38 32.5 38 H12.5 C11.4 38 10.5 37.1 10.5 36 V32.32 C10.5 31.4 11.05 30.55 11.95 30.15 L12.6 29.85 C13.72 29.32 14.72 28.45 15.45 27.2 C16.95 24.1 17.68 20.5 18.05 16.67 L17.64 16.55 C16.97 16.36 16.5 15.78 16.5 15.1 V14.5 C16.5 13.65 17.15 13 18 13 Z' },
+    { t: 'path', k: 'd', d: 'M17.6 16.5 H27.4 M11 30 H34' }
   ],
   r: [
-    { t: 'path', k: 'b', d: 'M12.8 8.6 H17.0 V11.6 H20.4 V8.6 H24.6 V11.6 H28.0 V8.6 H32.2 V14.8 L29.6 17.4 C29.0 23.0 28.8 28.4 29.8 32.6 L30.6 33.0 C31.8 33.4 32.6 34.2 32.6 35.4 V37.4 C32.6 38.5 31.7 39.4 30.6 39.4 H14.4 C13.3 39.4 12.4 38.5 12.4 37.4 V35.4 C12.4 34.2 13.2 33.4 14.4 33.0 L15.2 32.6 C16.2 28.4 16.0 23.0 15.4 17.4 L12.8 14.8 Z' },
-    { t: 'path', k: 'd', d: 'M15.4 17.4 H29.6 M15.2 32.8 H29.8 M12.6 35.4 H32.4' }
+    { t: 'path', k: 'b', d: 'M11 11 V7 H14 V11 H16.5 V7 H19 V11 H21.5 V7 H24 V11 H26.5 V7 H29 V11 H31.5 V7 H34 V11 H34.7 C35.55 11 36.2 11.65 36.2 12.5 V13.5 C36.2 14.35 35.55 15 34.7 15 H10.3 C9.45 15 8.8 14.35 8.8 13.5 V12.5 C8.8 11.65 9.45 11 10.3 11 H11 Z M12.3 15 H32.7 C33.6 15 34.3 15.7 34.3 16.6 V28.8 C34.3 30.0 33.4 30.9 32.2 30.9 H12.8 C11.6 30.9 10.7 30.0 10.7 28.8 V16.6 C10.7 15.7 11.4 15 12.3 15 Z M10.3 30.9 H34.7 C35.85 30.9 36.8 31.85 36.8 33 V36 C36.8 37.15 35.85 38 34.7 38 H10.3 C9.15 38 8.2 37.15 8.2 36 V33 C8.2 31.85 9.15 30.9 10.3 30.9 Z' },
+    { t: 'path', k: 'd', d: 'M11 14 H34 M12 31 H33' }
   ],
   n: [
-    { t: 'path', k: 'b', d: 'M17.4 5.4 L19.6 7.4 C20.3 7.2 21.0 7.1 21.7 7.1 L23.6 4.6 L24.6 7.6 C27.8 9.2 30.2 12.4 31.4 16.4 C32.5 20.2 32.9 25.6 32.5 30.6 C32.4 32.0 32.5 33.4 32.7 34.6 C33.7 35.0 34.3 35.8 34.3 36.9 V37.5 C34.3 38.6 33.4 39.4 32.3 39.4 H12.7 C11.6 39.4 10.7 38.6 10.7 37.5 V36.9 C10.7 35.8 11.3 35.0 12.3 34.6 C12.8 30.6 14.0 27.0 16.2 24.0 C14.8 23.4 13.4 22.6 12.2 21.6 C11.0 20.8 9.8 20.4 9.2 19.6 C8.5 18.7 8.6 17.5 9.4 16.8 C10.2 16.1 11.4 15.8 12.6 15.8 C13.4 12.8 15.2 10.0 17.6 8.6 Z' },
-    { t: 'path', k: 'd', d: 'M24.8 8.6 C27.8 10.8 29.8 14.0 30.8 17.8 C31.6 21.6 31.8 26.2 31.4 30.4 M9.8 19.2 C10.8 19.8 12.0 20.0 13.0 19.6' },
-    { t: 'circle', k: 'e', cx: 14.0, cy: 14.4, r: 1.05 },
-    { t: 'circle', k: 'e', cx: 10.4, cy: 17.4, r: 0.75 }
+    { t: 'path', k: 'b', d: 'M7.8 22 C7 20 6.8 17 8 14.8 C9 13 10.5 11.6 12.4 10.2 C14 9 15.5 7.8 17 6.8 C18 6.2 19 5.8 20.5 5.8 L20.8 2 L22.7 3.2 L22.9 5.8 C24.3 6.6 25.7 8.1 27 10.2 C28.6 12.8 29.6 15.8 30.2 18.8 C30.8 21.8 31 24.8 30.6 27.2 L31.4 28.2 C32.4 29.2 32.9 30.2 32.9 31.6 V35 C32.9 37 31.9 38 30.4 38 H14.5 C13 38 12 37 12 35.5 V31.6 C12 30.2 12.5 29.2 13.5 28.4 L14 28 C13 26.8 12 25.4 11 24 C10.5 23.5 10.2 23.4 10 23.6 C9.8 23.8 9.6 24 9.4 23.8 C9 23 8.5 22.6 8 22.4 L7.8 22 Z' },
+    { t: 'path', k: 'd', d: 'M23.2 6.2 C24.2 7.8 25 9.6 25.6 11.6 C26.2 13.8 26.6 16 26.8 18.2 C27 20.4 26.8 22.6 26.4 24.6 C26 26.4 25.4 27.8 24.6 28.8' },
+    { t: 'path', k: 'd', d: 'M24.5 8 C25.2 9.5 25.8 11.2 26.2 13.2 C26.6 15.2 26.8 17.4 26.8 19.6' },
+    { t: 'path', k: 'd', d: 'M22.6 7 L24.4 8' },
+    { t: 'path', k: 'd', d: 'M8 21.4 L10.6 22' },
+    { t: 'circle', k: 'e', cx: 13.0, cy: 13.2, r: 1.15 },
+    { t: 'circle', k: 'e', cx: 8.2, cy: 19.4, r: 0.7 }
   ],
   b: [
-    { t: 'circle', k: 'b', cx: 22.5, cy: 7.0, r: 2.2 },
-    { t: 'path', k: 'b', d: 'M22.5 9.2 C25.8 12.4 28.2 16.6 28.2 20.6 C28.2 23.6 25.6 25.6 22.5 25.6 C19.4 25.6 16.8 23.6 16.8 20.6 C16.8 16.6 19.2 12.4 22.5 9.2 Z' },
-    { t: 'path', k: 'b', d: 'M14.6 27.6 C16.4 26.2 18.0 25.4 19.6 25.0 H25.4 C27.0 25.4 28.6 26.2 30.4 27.6 C28.8 28.6 27.2 29.2 25.6 29.5 H19.4 C17.8 29.2 16.2 28.6 14.6 27.6 Z' },
-    { t: 'path', k: 'b', d: 'M19.5 29.4 H25.5 C25.8 31.4 26.8 33.0 28.4 34.0 L29.4 34.5 C30.8 35.0 31.6 35.9 31.6 37.0 V37.6 C31.6 38.6 30.8 39.4 29.8 39.4 H15.2 C14.2 39.4 13.4 38.6 13.4 37.6 V37.0 C13.4 35.9 14.2 35.0 15.6 34.5 L16.6 34.0 C18.2 33.0 19.2 31.4 19.5 29.4 Z' },
-    { t: 'path', k: 'd', d: 'M22.5 14.6 V20.6 M19.9 17.6 H25.1 M19.4 29.5 H25.6 M15.6 34.4 H29.4' }
+    { t: 'circle', k: 'b', cx: 22.5, cy: 4.6, r: 2.0 },
+    { t: 'path', k: 'b', d: 'M22.5 6.6 C26 9.8 28.4 13.6 28.4 17.5 C28.4 20.6 25.8 22.4 22.5 22.4 C19.2 22.4 16.6 20.6 16.6 17.5 C16.6 13.6 19 9.8 22.5 6.6 Z' },
+    { t: 'path', k: 'b', d: 'M14.5 22.4 H30.5 C30 24 29.5 25 29.3 25.8 C28.8 27.5 28.2 29.5 27.8 31.5 L28.5 32 C32 32 34 33 34 34.3 V36.5 C34 37.5 33 38 31.5 38 H13.5 C12 38 11 37.5 11 36.5 V34.3 C11 33 13 32 16.5 32 L17.2 31.5 C16.8 29.5 16.2 27.5 15.7 25.8 C15.5 25 15 24 14.5 22.4 Z' },
+    { t: 'path', k: 'd', d: 'M19.5 9.5 L25.5 21' },
+    { t: 'path', k: 'd', d: 'M15 25 H30' }
   ],
   q: [
-    { t: 'circle', k: 'b', cx: 8.9, cy: 11.2, r: 2.0 },
-    { t: 'circle', k: 'b', cx: 15.5, cy: 8.4, r: 2.0 },
-    { t: 'circle', k: 'b', cx: 22.5, cy: 7.2, r: 2.1 },
-    { t: 'circle', k: 'b', cx: 29.5, cy: 8.4, r: 2.0 },
-    { t: 'circle', k: 'b', cx: 36.1, cy: 11.2, r: 2.0 },
-    { t: 'path', k: 'b', d: 'M9.4 12.8 L13.8 19.6 L16.0 10.6 L19.8 18.8 L22.5 9.4 L25.2 18.8 L29.0 10.6 L31.2 19.6 L35.6 12.8 L33.0 25.0 C32.2 28.2 32.6 31.4 34.2 34.2 V35.2 C35.4 35.7 36.0 36.5 36.0 37.5 V37.7 C36.0 38.7 35.2 39.4 34.2 39.4 H10.8 C9.8 39.4 9.0 38.7 9.0 37.7 V37.5 C9.0 36.5 9.6 35.7 10.8 35.2 V34.2 C12.4 31.4 12.8 28.2 12.0 25.0 Z' },
-    { t: 'path', k: 'd', d: 'M12.6 25.6 C17.6 24.2 27.4 24.2 32.4 25.6 M12.2 30.4 C17.4 29.2 27.6 29.2 32.8 30.4 M10.8 35.2 H34.2' }
+    { t: 'circle', k: 'b', cx: 8.8, cy: 9.5, r: 1.85 },
+    { t: 'circle', k: 'b', cx: 15.5, cy: 7.4, r: 1.95 },
+    { t: 'circle', k: 'b', cx: 22.5, cy: 6.5, r: 2.1 },
+    { t: 'circle', k: 'b', cx: 29.5, cy: 7.4, r: 1.95 },
+    { t: 'circle', k: 'b', cx: 36.2, cy: 9.5, r: 1.85 },
+    { t: 'path', k: 'b', d: 'M8.8 11 C9.2 13 11 15 13.5 15.5 L15.5 9.5 C16 12 18.5 13.5 22.5 14 C26.5 13.5 29 12 29.5 9.5 L31.5 15.5 C34 15 36 13 36.2 11 L33.5 27 C33 29.5 33.4 32 34.4 34 V34.4 C35.6 34.9 36.3 35.7 36.3 36.7 V36.9 C36.3 37.9 35.5 38.6 34.5 38.6 H10.5 C9.5 38.6 8.7 37.9 8.7 36.9 V36.7 C8.7 35.7 9.4 34.9 10.6 34.4 V34 C11.6 32 12 29.5 11.5 27 Z' },
+    { t: 'path', k: 'd', d: 'M13 25.5 H32 M10.5 34.5 H34.5' }
   ],
   k: [
-    { t: 'path', k: 'x', d: 'M21.2 4.4 H23.8 V7.0 H26.4 V9.4 H23.8 V12.0 H21.2 V9.4 H18.6 V7.0 H21.2 Z' },
-    { t: 'path', k: 'b', d: 'M22.5 12.2 C24.6 12.2 26.3 13.7 26.9 15.8 C27.5 18.0 26.9 20.4 25.7 22.2 C28.3 21.2 31.3 22.4 32.5 25.2 C33.7 28.0 33.1 31.5 31.5 34.3 V35.3 C32.7 35.8 33.3 36.6 33.3 37.6 V37.8 C33.3 38.8 32.5 39.4 31.5 39.4 H13.5 C12.5 39.4 11.7 38.8 11.7 37.8 V37.6 C11.7 36.6 12.3 35.8 13.5 35.3 V34.3 C11.9 31.5 11.3 28.0 12.5 25.2 C13.7 22.4 16.7 21.2 19.3 22.2 C18.1 20.4 17.5 18.0 18.1 15.8 C18.7 13.7 20.4 12.2 22.5 12.2 Z' },
-    { t: 'path', k: 'd', d: 'M19.6 22.6 C21.2 23.6 23.8 23.6 25.4 22.6 M22.5 23.8 V30.8 M14.2 31.6 C18.6 30.0 26.4 30.0 30.8 31.6 M13.5 35.3 H31.5' }
+    { t: 'path', k: 'x', d: 'M21.2 2 H23.8 V4.5 H26.4 V6.8 H23.8 V9.2 H21.2 V6.8 H18.6 V4.5 H21.2 Z' },
+    { t: 'path', k: 'b', d: 'M22.5 9.5 C24.4 9.5 26 11 26.5 13 C27.1 15.2 26.5 17.6 25.3 19.5 C27.9 18.4 30.9 19.6 32 22.4 C33.2 25.2 32.6 28.7 31 31.5 V32.5 C32.2 33 32.9 33.8 32.9 34.9 V35.1 C32.9 36.1 32.1 36.8 31.1 36.8 H13.9 C12.9 36.8 12.1 36.1 12.1 35.1 V34.9 C12.1 33.8 12.8 33 14 32.5 V31.5 C12.4 28.7 11.8 25.2 13 22.4 C14.1 19.6 17.1 18.4 19.7 19.5 C18.5 17.6 17.9 15.2 18.5 13 C19 11 20.6 9.5 22.5 9.5 Z' },
+    { t: 'path', k: 'd', d: 'M19.5 19.5 C21.2 20.5 23.8 20.5 25.5 19.5 M22.5 20.5 V28 M14.5 29.5 C18.6 28 26.4 28 30.5 29.5 M14 33 H31' }
   ]
 }
 
-// Paint: 3-stop ivory / graphite bodies + one diagonal sheen (light from upper-left,
-// warm core-shadow at lower-right) + the shared radial ground shadow.
+// Paint: 4-stop warm ivory / warm charcoal bodies + one subtle diagonal sheen (light from upper-left,
+// warm core-shadow at lower-right) + the shared radial ground shadow. Matte, not plasticky.
 const gradDefs =
   `<linearGradient id="${uid}-fillw" x1="0" y1="0" x2="0" y2="1">` +
-  `<stop offset="0" stop-color="#FFFDF4"/><stop offset=".45" stop-color="#F2E9D3"/><stop offset="1" stop-color="#D3C29A"/></linearGradient>` +
+  `<stop offset="0" stop-color="#FCF5E6"/><stop offset=".40" stop-color="#F0E2C2"/><stop offset=".78" stop-color="#D8C298"/><stop offset="1" stop-color="#B89F70"/></linearGradient>` +
   `<linearGradient id="${uid}-fillb" x1="0" y1="0" x2="0" y2="1">` +
-  `<stop offset="0" stop-color="#83858C"/><stop offset=".45" stop-color="#4B4D54"/><stop offset="1" stop-color="#1D1E22"/></linearGradient>` +
+  `<stop offset="0" stop-color="#5E5650"/><stop offset=".42" stop-color="#403935"/><stop offset=".78" stop-color="#262220"/><stop offset="1" stop-color="#171412"/></linearGradient>` +
   `<linearGradient id="${uid}-sheenw" x1="0" y1="0" x2=".85" y2="1">` +
-  `<stop offset="0" stop-color="#FFFFFF" stop-opacity=".5"/><stop offset=".38" stop-color="#FFFFFF" stop-opacity=".12"/><stop offset=".62" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#6B5A3A" stop-opacity=".18"/></linearGradient>` +
+  `<stop offset="0" stop-color="#FFFFFF" stop-opacity=".20"/><stop offset=".35" stop-color="#FFFFFF" stop-opacity=".06"/><stop offset=".65" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#5C4D2F" stop-opacity=".15"/></linearGradient>` +
   `<linearGradient id="${uid}-sheenb" x1="0" y1="0" x2=".85" y2="1">` +
-  `<stop offset="0" stop-color="#FFFFFF" stop-opacity=".34"/><stop offset=".38" stop-color="#FFFFFF" stop-opacity=".1"/><stop offset=".62" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#000000" stop-opacity=".3"/></linearGradient>` +
+  `<stop offset="0" stop-color="#FFFFFF" stop-opacity=".14"/><stop offset=".35" stop-color="#FFFFFF" stop-opacity=".04"/><stop offset=".65" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#000000" stop-opacity=".28"/></linearGradient>` +
   `<radialGradient id="${uid}-gsh">` +
-  `<stop offset="0" stop-color="#000" stop-opacity=".3"/><stop offset=".65" stop-color="#000" stop-opacity=".16"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>`
+  `<stop offset="0" stop-color="#000" stop-opacity=".26"/><stop offset=".65" stop-color="#000" stop-opacity=".13"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>`
 
 function pieceGroup(color, type) {
   const white = color === 'w'
   const F = `url(#${uid}-fill${color})`
   const SH = `url(#${uid}-sheen${color})`
-  const S = white ? '#3E382B' : '#0E0E12'
-  const D = white ? '#4A4436' : '#0B0B0E'
-  const shadow = `<ellipse cx="22.5" cy="39.9" rx="${SHADOW_RX[type]}" ry="2.2" fill="url(#${uid}-gsh)"/>`
+  const S = white ? '#3E382B' : '#0B0B0E'
+  const D = white ? '#4A4436' : '#080809'
+  const shadow = `<ellipse cx="22.5" cy="39.4" rx="${SHADOW_RX[type]}" ry="2.1" fill="url(#${uid}-gsh)"/>`
   const body = ART[type].map(pr => {
     if (pr.t === 'circle') {
       if (pr.k === 'e') return `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${D}"/>`
-      return `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${F}" stroke="${S}" stroke-width="1.5"/>` +
+      return `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${F}" stroke="${S}" stroke-width="1.0"/>` +
              `<circle cx="${pr.cx}" cy="${pr.cy}" r="${pr.r}" fill="${SH}"/>`
     }
     if (pr.k === 'b') {
-      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.5" stroke-linejoin="round"/>` +
+      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.0" stroke-linejoin="round"/>` +
              `<path d="${pr.d}" fill="${SH}"/>`
     }
     if (pr.k === 'x') {
-      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.4" stroke-linejoin="round"/>`
+      return `<path d="${pr.d}" fill="${F}" stroke="${S}" stroke-width="1.0" stroke-linejoin="round"/>`
     }
-    return `<path d="${pr.d}" fill="none" stroke="${D}" stroke-opacity="${white ? 0.85 : 0.8}" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>`
+    return `<path d="${pr.d}" fill="none" stroke="${D}" stroke-opacity="${white ? 0.9 : 0.85}" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round"/>`
   }).join('')
   return `<g id="${uid}-${color}${type}">${shadow}${body}</g>`
 }
